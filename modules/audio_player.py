@@ -8,7 +8,7 @@ from utils.audio_utils import format_time, generate_filename, get_audio_duration
 
 def render_audio_player(audio_bytes, track, show_download=True):
     """
-    Render audio player with controls and optional download button
+    Render WaveSurfer.js audio player with waveform visualization and controls
 
     Args:
         audio_bytes: MP3 audio bytes
@@ -30,64 +30,334 @@ def render_audio_player(audio_bytes, track, show_download=True):
     # Get current state
     play_count = st.session_state.get('play_count', 0)
     repeat_mode = st.session_state.get('repeat_mode', 'none')
+    playback_speed = st.session_state.get('playback_speed', 1.0)
+    auto_play = st.session_state.get('auto_play', False)
 
-    # Create custom HTML audio player with Streamlit communication
+    # Create WaveSurfer.js player with controls
     html_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <script src="https://unpkg.com/wavesurfer.js@7"></script>
+        <script src="https://unpkg.com/wavesurfer.js@7/dist/plugins/regions.min.js"></script>
     <style>
-        audio {{
-            width: 100%;
-            margin: 10px 0;
+            body {{
+                font-family: Arial, sans-serif;
+                margin: 0;
+                padding: 10px;
+                background: #f0f2f6;
+            }}
+            #waveform {{
+                background: white;
+                border-radius: 8px;
+                padding: 10px;
+                margin-bottom: 10px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }}
+            .controls {{
+                display: flex;
+                gap: 8px;
+                margin-bottom: 10px;
+                flex-wrap: wrap;
+            }}
+            .controls button {{
+                padding: 8px 16px;
+                border: none;
+                border-radius: 4px;
+                background: #1976d2;
+                color: white;
+                cursor: pointer;
+                font-size: 14px;
+                transition: background 0.2s;
+            }}
+            .controls button:hover {{
+                background: #1565c0;
+            }}
+            .controls button:active {{
+                background: #0d47a1;
+            }}
+            .speed-controls {{
+                display: flex;
+                gap: 4px;
+                margin-left: auto;
+            }}
+            .speed-controls button {{
+                padding: 6px 12px;
+                font-size: 12px;
+            }}
+            .speed-controls button.active {{
+                background: #0d47a1;
+            }}
+            .time-display {{
+                text-align: center;
+                color: #666;
+                font-size: 12px;
+                margin-top: 5px;
+            }}
+            .region-info {{
+                background: #e3f2fd;
+                padding: 8px;
+                border-radius: 4px;
+                margin-top: 10px;
+                font-size: 12px;
+                color: #1976d2;
         }}
     </style>
-    <audio id="audio-player-{play_count}" controls autoplay>
-        <source src="data:audio/mp3;base64,{audio_b64}" type="audio/mp3">
-        Your browser does not support the audio element.
-    </audio>
+    </head>
+    <body>
+        <div id="waveform"></div>
+        <div class="controls">
+            <button id="playPauseBtn">▶ Play</button>
+            <button id="stopBtn">⏹ Stop</button>
+            <button id="loopBtn">🔁 Loop</button>
+            <button id="regionBtn">📍 Select Region</button>
+            <div class="speed-controls">
+                <button class="speed-btn" data-speed="0.5">0.5x</button>
+                <button class="speed-btn" data-speed="0.75">0.75x</button>
+                <button class="speed-btn active" data-speed="1.0">1.0x</button>
+                <button class="speed-btn" data-speed="1.25">1.25x</button>
+                <button class="speed-btn" data-speed="1.5">1.5x</button>
+            </div>
+        </div>
+        <div class="time-display">
+            <span id="currentTime">00:00</span> / <span id="totalTime">00:00</span>
+        </div>
+        <div id="regionInfo" class="region-info" style="display: none;">
+            Region selected: <span id="regionTime">0:00 - 0:00</span>
+        </div>
+
     <script>
         (function() {{
-            const audio = document.getElementById('audio-player-{play_count}');
+                const audioData = 'data:audio/mp3;base64,{audio_b64}';
             const repeatMode = '{repeat_mode}';
-            let hasEnded = false;
+                const initialSpeed = {playback_speed};
+                const autoPlay = {str(auto_play).lower()};
+                let isLooping = false;
+                let selectedRegion = null;
+                let regionStart = null;
+                let regionEnd = null;
 
-            console.log('Custom audio player initialized, repeat mode:', repeatMode);
+                // Create WaveSurfer instance
+                const wavesurfer = WaveSurfer.create({{
+                    container: '#waveform',
+                    waveColor: '#90caf9',
+                    progressColor: '#1976d2',
+                    cursorColor: '#1976d2',
+                    height: 100,
+                    normalize: true,
+                    plugins: [
+                        WaveSurfer.Regions.create()
+                    ]
+                }});
 
-            // Play audio
-            audio.play().catch(e => console.log('Autoplay blocked:', e));
+                // Load audio
+                wavesurfer.load(audioData);
 
-            // Monitor progress
-            audio.addEventListener('timeupdate', function() {{
-                if (Math.floor(audio.currentTime) % 5 === 0) {{
-                    console.log('Audio progress:', audio.currentTime.toFixed(1), '/', audio.duration.toFixed(1));
+                // Update time display
+                function updateTimeDisplay() {{
+                    const current = wavesurfer.getCurrentTime();
+                    const duration = wavesurfer.getDuration();
+                    document.getElementById('currentTime').textContent = formatTime(current);
+                    if (duration) {{
+                        document.getElementById('totalTime').textContent = formatTime(duration);
+                    }}
                 }}
-            }});
 
-            // Handle audio end - use Streamlit's setComponentValue
-            audio.addEventListener('ended', function() {{
-                if (hasEnded) return;
-                hasEnded = true;
+                function formatTime(seconds) {{
+                    const mins = Math.floor(seconds / 60);
+                    const secs = Math.floor(seconds % 60);
+                    return `${{mins.toString().padStart(2, '0')}}:${{secs.toString().padStart(2, '0')}}`;
+                }}
 
-                console.log('Audio ended! Repeat mode:', repeatMode);
-                console.log('Sending value to Streamlit via setComponentValue');
+                // Play/Pause button
+                const playPauseBtn = document.getElementById('playPauseBtn');
+                playPauseBtn.addEventListener('click', () => {{
+                    wavesurfer.playPause();
+                }});
 
-                // Send value to Streamlit Python
+                wavesurfer.on('play', () => {{
+                    playPauseBtn.textContent = '⏸ Pause';
+                }});
+
+                wavesurfer.on('pause', () => {{
+                    playPauseBtn.textContent = '▶ Play';
+                }});
+
+                // Stop button
+                document.getElementById('stopBtn').addEventListener('click', () => {{
+                    wavesurfer.stop();
+                    playPauseBtn.textContent = '▶ Play';
+                }});
+
+                // Loop button
+                const loopBtn = document.getElementById('loopBtn');
+                loopBtn.addEventListener('click', () => {{
+                    isLooping = !isLooping;
+                    loopBtn.style.background = isLooping ? '#0d47a1' : '#1976d2';
+                    loopBtn.textContent = isLooping ? '🔁 Looping' : '🔁 Loop';
+                }});
+
+                // Region selection button
+                let isSelectingRegion = false;
+                document.getElementById('regionBtn').addEventListener('click', () => {{
+                    isSelectingRegion = !isSelectingRegion;
+                    const btn = document.getElementById('regionBtn');
+                    btn.style.background = isSelectingRegion ? '#0d47a1' : '#1976d2';
+                    btn.textContent = isSelectingRegion ? '✅ Done' : '📍 Select Region';
+                    
+                    if (!isSelectingRegion && selectedRegion) {{
+                        // Enable region loop
+                        selectedRegion.setOptions({{ loop: true }});
+                    }}
+                }});
+
+                // Region creation on click and drag
+                let regionStartTime = null;
+                wavesurfer.on('interaction', (time) => {{
+                    if (isSelectingRegion) {{
+                        if (!regionStartTime) {{
+                            regionStartTime = time;
+                            // Remove existing regions
+                            wavesurfer.clearRegions();
+                        }} else {{
+                            const start = Math.min(regionStartTime, time);
+                            const end = Math.max(regionStartTime, time);
+                            
+                            // Remove existing regions
+                            wavesurfer.clearRegions();
+                            
+                            // Create new region
+                            selectedRegion = wavesurfer.addRegion({{
+                                start: start,
+                                end: end,
+                                color: 'rgba(0, 123, 255, 0.2)',
+                                drag: true,
+                                resize: true
+                            }});
+                            
+                            regionStart = start;
+                            regionEnd = end;
+                            
+                            // Show region info
+                            document.getElementById('regionInfo').style.display = 'block';
+                            document.getElementById('regionTime').textContent = 
+                                `${{formatTime(start)}} - ${{formatTime(end)}}`;
+                            
+                            regionStartTime = null;
+                            isSelectingRegion = false;
+                            document.getElementById('regionBtn').style.background = '#1976d2';
+                            document.getElementById('regionBtn').textContent = '📍 Select Region';
+                        }}
+                    }}
+                }});
+
+                // Update region info when region changes
+                wavesurfer.on('region-updated', (region) => {{
+                    regionStart = region.start;
+                    regionEnd = region.end;
+                    document.getElementById('regionTime').textContent = 
+                        `${{formatTime(region.start)}} - ${{formatTime(region.end)}}`;
+                }});
+
+                // Speed controls
+                const speedButtons = document.querySelectorAll('.speed-btn');
+                speedButtons.forEach(btn => {{
+                    btn.addEventListener('click', () => {{
+                        const speed = parseFloat(btn.dataset.speed);
+                        wavesurfer.setPlaybackRate(speed);
+                        
+                        // Update active state
+                        speedButtons.forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                    }});
+                }});
+
+                // Set initial speed
+                if (initialSpeed !== 1.0) {{
+                    wavesurfer.setPlaybackRate(initialSpeed);
+                    speedButtons.forEach(btn => {{
+                        if (parseFloat(btn.dataset.speed) === initialSpeed) {{
+                            btn.classList.add('active');
+                        }} else {{
+                            btn.classList.remove('active');
+                        }}
+                    }});
+                }}
+
+                // Time update
+                wavesurfer.on('timeupdate', updateTimeDisplay);
+
+                // Handle audio end based on repeat mode
+                wavesurfer.on('finish', () => {{
+                    console.log('Audio finished, repeat mode:', repeatMode);
+                    
+                    // Region loop (highest priority)
+                    if (selectedRegion && selectedRegion.loop) {{
+                        wavesurfer.setTime(regionStart);
+                        wavesurfer.play();
+                        return;
+                    }}
+                    
+                    // Global loop
+                    if (isLooping) {{
+                        wavesurfer.play();
+                        return;
+                    }}
+                    
+                    // Repeat mode handling
+                    if (repeatMode === 'one') {{
+                        wavesurfer.seekTo(0);
+                        wavesurfer.play();
+                    }} else if (repeatMode === 'all') {{
+                        // Will be handled by Streamlit
+                        notifyStreamlit('ended');
+                    }} else {{
+                        // 'none' mode - notify Streamlit
+                        notifyStreamlit('ended');
+                    }}
+                }});
+
+                // Auto-play if enabled
+                wavesurfer.on('ready', () => {{
+                    updateTimeDisplay();
+                    if (autoPlay) {{
+                        wavesurfer.play().catch(e => console.log('Autoplay blocked:', e));
+                    }}
+                }});
+
+                // Notify Streamlit of events
+                function notifyStreamlit(event) {{
+                    try {{
                 window.parent.postMessage({{
                     isStreamlitMessage: true,
                     type: 'streamlit:setComponentValue',
                     value: {{
-                        ended: true,
+                                event: event,
                         repeatMode: repeatMode,
                         timestamp: Date.now()
                     }}
                 }}, '*');
-            }});
+                    }} catch(e) {{
+                        console.log('Error notifying Streamlit:', e);
+                    }}
+                }}
 
-            console.log('Event listeners attached successfully');
+                // Region loop handling
+                wavesurfer.on('audioprocess', (time) => {{
+                    if (selectedRegion && selectedRegion.loop) {{
+                        if (time >= regionEnd) {{
+                            wavesurfer.setTime(regionStart);
+                        }}
+                    }}
+                }});
         }})();
     </script>
+    </body>
+    </html>
     """
 
-    # Render custom audio player and get return value
-    component_value = components.html(html_code, height=80)
+    # Render WaveSurfer player
+    component_value = components.html(html_code, height=250)
 
     # Get actual duration
     duration = None
@@ -98,7 +368,7 @@ def render_audio_player(audio_bytes, track, show_download=True):
         pass
 
     # Check if component signaled that audio ended
-    if component_value and isinstance(component_value, dict) and component_value.get('ended'):
+    if component_value and isinstance(component_value, dict) and component_value.get('event') == 'ended':
         print(f"[DEBUG] Component signaled audio ended: {component_value}")
         print(f"[DEBUG] Current repeat_mode: {repeat_mode}")
 
