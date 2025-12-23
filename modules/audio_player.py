@@ -6,7 +6,7 @@ import streamlit.components.v1 as components
 from utils.audio_utils import format_time, generate_filename, get_audio_duration_from_bytes
 
 
-def render_audio_player(audio_bytes, track, show_download=True):
+def render_audio_player(audio_bytes, track, show_download=True, use_custom_component=False):
     """
     Render WaveSurfer.js audio player with waveform visualization and controls
 
@@ -14,9 +14,10 @@ def render_audio_player(audio_bytes, track, show_download=True):
         audio_bytes: MP3 audio bytes
         track: Track dictionary {'english': '...', 'korean': '...'}
         show_download: Whether to show download button
+        use_custom_component: Whether to use custom Streamlit component (requires build)
 
     Returns:
-        None
+        None or component return value
     """
     if not audio_bytes:
         st.warning("No audio generated")
@@ -26,6 +27,51 @@ def render_audio_player(audio_bytes, track, show_download=True):
 
     # Convert audio bytes to base64 for embedding
     audio_b64 = base64.b64encode(audio_bytes).decode()
+    
+    # Try to use custom component if requested
+    if use_custom_component:
+        try:
+            from components.wavesurfer_player import wavesurfer_player
+            
+            play_count = st.session_state.get('play_count', 0)
+            repeat_mode = st.session_state.get('repeat_mode', 'none')
+            playback_speed = st.session_state.get('playback_speed', 1.0)
+            auto_play = st.session_state.get('auto_play', False)
+            
+            # Use custom component
+            component_value = wavesurfer_player(
+                audio_data=audio_b64,
+                repeat_mode=repeat_mode,
+                playback_speed=playback_speed,
+                auto_play=auto_play,
+                key=f"wavesurfer_{play_count}"
+            )
+            
+            # Handle component return value (audio-ended event)
+            if component_value and isinstance(component_value, dict) and component_value.get('event') == 'audio-ended':
+                print(f"[DEBUG] Custom component signaled audio ended: {component_value}")
+                effective_repeat_mode = component_value.get('repeat_mode', repeat_mode)
+                _handle_audio_ended(effective_repeat_mode)
+            
+            # Get actual duration
+            duration = None
+            try:
+                duration = get_audio_duration_from_bytes(audio_bytes)
+                st.caption(f"Duration: {format_time(duration)}")
+            except Exception:
+                pass
+            
+            # Download button
+            if show_download:
+                render_download_button(track, audio_bytes)
+            
+            return component_value
+        except ImportError:
+            st.warning("Custom component not available, falling back to HTML component")
+            # Fall through to HTML implementation
+        except Exception as e:
+            st.warning(f"Error using custom component: {e}, falling back to HTML component")
+            # Fall through to HTML implementation
 
     # Get current state
     play_count = st.session_state.get('play_count', 0)
@@ -295,7 +341,7 @@ def render_audio_player(audio_bytes, track, show_download=True):
                 }});
 
                 // Handle audio end based on repeat mode using finish event only
-                // Simplified: No Streamlit communication, JS handles all repeat modes
+                // Use Streamlit.setComponentValue() to communicate with Python
                 wavesurfer.on('finish', () => {{
                     console.log('Audio finished (finish event), repeat mode:', repeatMode);
                     
@@ -314,20 +360,38 @@ def render_audio_player(audio_bytes, track, show_download=True):
                         return;
                     }}
                     
-                    // Repeat mode handling - all handled in JS (no Streamlit communication)
+                    // Repeat mode handling
                     if (repeatMode === 'one') {{
-                        // Repeat One: restart current track
+                        // Repeat One: restart current track (JS only)
                         console.log('Repeat One mode: restarting current track');
                         wavesurfer.seekTo(0);
                         wavesurfer.play();
                     }} else {{
-                        // Repeat All / None: Show message and wait for user to click next
-                        // Since Streamlit communication doesn't work reliably, we just show a visual indicator
-                        console.log(`Repeat ${{repeatMode}} mode: Audio finished. Please click Next button to continue.`);
+                        // Repeat All / None: notify Streamlit to advance to next track
+                        console.log(`Repeat ${{repeatMode}} mode: notifying Streamlit to advance`);
                         
-                        // Optional: Show a visual indicator that audio finished
-                        // The user can manually click Next button to advance
-                        // For true auto-advance, we would need custom Streamlit component
+                        // Send event to parent window using postMessage
+                        // The parent will handle it via a separate listener
+                        try {{
+                            const eventData = {{
+                                type: 'wavesurfer-audio-ended',
+                                event: 'audio-ended',
+                                repeatMode: repeatMode,
+                                timestamp: Date.now(),
+                                playCount: {play_count}
+                            }};
+                            
+                            // Try to send to parent window
+                            if (window.parent && window.parent !== window) {{
+                                window.parent.postMessage(eventData, '*');
+                                console.log('Sent audio-ended event to parent window:', eventData);
+                            }}
+                            
+                            // Also try to send via window.postMessage for same-origin
+                            window.postMessage(eventData, '*');
+                        }} catch(e) {{
+                            console.error('Error sending event:', e);
+                        }}
                     }}
                 }});
 
@@ -356,9 +420,63 @@ def render_audio_player(audio_bytes, track, show_download=True):
     </html>
     """
 
-    # Render WaveSurfer player
-    # Note: All repeat mode handling is done in JS (no Streamlit communication)
-    component_value = components.html(html_code, height=250)
+    # Add message listener in main page (not iframe) to receive events from WaveSurfer
+    listener_key = f"wavesurfer_main_listener_{play_count}"
+    if listener_key not in st.session_state:
+        main_listener_html = """
+        <script>
+        (function() {
+            // Only install once
+            if (window.__wavesurfer_main_listener_installed) {
+                return;
+            }
+            window.__wavesurfer_main_listener_installed = true;
+            
+            console.log('Installing main page WaveSurfer message listener');
+            
+            window.addEventListener('message', function(event) {
+                if (event.data && event.data.type === 'wavesurfer-audio-ended') {
+                    console.log('Main page received audio-ended event:', event.data);
+                    
+                    // Update URL params to trigger Streamlit rerun
+                    // Use history.replaceState to avoid navigation (safe)
+                    try {
+                        const url = new URL(window.location.href);
+                        const currentAudioEnd = url.searchParams.get('audio_end');
+                        const newTimestamp = event.data.timestamp.toString();
+                        
+                        // Only update if this is a new event
+                        if (currentAudioEnd !== newTimestamp) {
+                            url.searchParams.set('audio_end', newTimestamp);
+                            url.searchParams.set('repeat_mode', event.data.repeatMode);
+                            
+                            // Use replaceState (no navigation, no sandbox error)
+                            window.history.replaceState({}, '', url.toString());
+                            
+                            console.log('Updated URL params, triggering Streamlit rerun');
+                            
+                            // Trigger Streamlit rerun by dispatching a custom event
+                            // Streamlit will detect the URL change on next rerun
+                            window.dispatchEvent(new Event('popstate'));
+                        }
+                    } catch(e) {
+                        console.error('Error updating URL:', e);
+                    }
+                }
+            });
+        })();
+        </script>
+        """
+        components.html(main_listener_html, height=0)
+        st.session_state[listener_key] = True
+
+    # Render WaveSurfer player with event handling
+    # Use key to ensure component is recreated when play_count changes
+    component_value = components.html(
+        html_code, 
+        height=250,
+        key=f"wavesurfer_{play_count}"
+    )
 
     # Get actual duration
     duration = None
@@ -367,6 +485,34 @@ def render_audio_player(audio_bytes, track, show_download=True):
         st.caption(f"Duration: {format_time(duration)}")
     except Exception:
         pass
+
+    # Check for audio_end event from query params (triggered by main listener)
+    query_params = st.query_params
+    audio_end_param = query_params.get('audio_end')
+    url_repeat_mode = query_params.get('repeat_mode')
+    
+    if audio_end_param:
+        # Use a session state flag to prevent re-processing
+        last_timestamp = st.session_state.get('_last_ended_timestamp', 0)
+        current_timestamp = int(audio_end_param) if audio_end_param.isdigit() else 0
+
+        if current_timestamp != last_timestamp:
+            st.session_state['_last_ended_timestamp'] = current_timestamp
+            print(f"[DEBUG] WaveSurfer finish event detected: timestamp={current_timestamp}, repeat_mode={url_repeat_mode}")
+            
+            # Use repeat mode from URL (most recent) or session state
+            effective_repeat_mode = url_repeat_mode if url_repeat_mode else repeat_mode
+            
+            # Remove the parameter to prevent re-processing
+            params = dict(st.query_params)
+            params.pop('audio_end', None)
+            params.pop('repeat_mode', None)
+            st.query_params.update(params)
+            
+            # Handle audio ended based on repeat mode
+            _handle_audio_ended(effective_repeat_mode)
+        else:
+            print(f"[DEBUG] Skipping duplicate audio end event (timestamp={current_timestamp})")
 
     # Download button
     if show_download:
