@@ -40,23 +40,19 @@ def init_session_state():
 
 def _handle_auto_play_next():
     """Handle auto-play next track based on repeat mode"""
+    from modules.audio_player import handle_track_end
+    
     total_tracks = len(st.session_state.tracks)
     current_track = st.session_state.current_track
     repeat_mode = st.session_state.get('repeat_mode', 'none')
 
-    # Increment play count to force audio refresh (even for Repeat One)
-    st.session_state.play_count += 1
-
-    if repeat_mode == 'one':
-        # Stay on same track (replay - play_count increment forces refresh)
-        pass
-    elif repeat_mode == 'all':
-        # Next track or loop to first
-        st.session_state.current_track = (current_track + 1) % total_tracks
-    else:  # 'none'
-        # Next track or stop at end
-        if current_track < total_tracks - 1:
-            st.session_state.current_track = current_track + 1
+    # Use handle_track_end for consistent logic
+    next_track, should_play = handle_track_end(current_track, total_tracks, repeat_mode)
+    
+    if should_play:
+        # Increment play count to force audio refresh (even for Repeat One)
+        st.session_state.play_count += 1
+        st.session_state.current_track = next_track
 
 
 def render_upload_screen():
@@ -141,18 +137,16 @@ def render_player_screen():
                     # Render audio player with download button
                     render_audio_player(audio_bytes, track, show_download=True)
 
-                    # Auto-play next track button (appears when auto-play is enabled)
+                    # Auto-play info (appears when auto-play is enabled)
                     if st.session_state.get('auto_play', False):
                         st.markdown("---")
-                        col_auto1, col_auto2 = st.columns([2, 1])
-
-                        with col_auto1:
-                            st.info("🔄 Auto-Play is enabled. Click 'Play Next' when ready.")
-
-                        with col_auto2:
-                            if st.button("▶️ Play Next", key='auto_play_next', type="primary"):
-                                _handle_auto_play_next()
-                                st.rerun()
+                        repeat_mode = st.session_state.get('repeat_mode', 'none')
+                        mode_desc = {
+                            'none': '순차 재생 (마지막 트랙에서 정지)',
+                            'one': '현재 트랙 반복',
+                            'all': '전체 플레이리스트 반복'
+                        }
+                        st.info(f"🔄 Auto-Play 활성화: {mode_desc.get(repeat_mode, '')} - 오디오 재생이 끝나면 자동으로 다음 트랙으로 진행됩니다.")
 
             except Exception as e:
                 st.error(f"Error generating audio: {str(e)}")
