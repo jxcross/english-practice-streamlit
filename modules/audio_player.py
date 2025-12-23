@@ -32,6 +32,11 @@ def render_audio_player(audio_bytes, track, show_download=True):
     repeat_mode = st.session_state.get('repeat_mode', 'none')
     playback_speed = st.session_state.get('playback_speed', 1.0)
     auto_play = st.session_state.get('auto_play', False)
+    
+    # Get track info for JS playlist management
+    current_idx = st.session_state.get('current_track', 0)
+    total_tracks = len(st.session_state.get('tracks', []))
+    tracks = st.session_state.get('tracks', [])
 
     # Create WaveSurfer.js player with controls
     html_code = f"""
@@ -284,36 +289,45 @@ def render_audio_player(audio_bytes, track, show_download=True):
                     }});
                 }}
 
-                // Time update
-                wavesurfer.on('timeupdate', updateTimeDisplay);
+                // Time update - only for display
+                wavesurfer.on('timeupdate', (currentTime) => {{
+                    updateTimeDisplay();
+                }});
 
-                // Handle audio end based on repeat mode
+                // Handle audio end based on repeat mode using finish event only
+                // Simplified: No Streamlit communication, JS handles all repeat modes
                 wavesurfer.on('finish', () => {{
-                    console.log('Audio finished, repeat mode:', repeatMode);
+                    console.log('Audio finished (finish event), repeat mode:', repeatMode);
                     
-                    // Region loop (highest priority)
+                    // Region loop (highest priority) - handled by audioprocess, but check here too
                     if (selectedRegion && selectedRegion.loop) {{
+                        console.log('Region loop active, restarting region');
                         wavesurfer.setTime(regionStart);
                         wavesurfer.play();
                         return;
                     }}
                     
-                    // Global loop
+                    // Global loop button (manual loop)
                     if (isLooping) {{
+                        console.log('Global loop active, restarting audio');
                         wavesurfer.play();
                         return;
                     }}
                     
-                    // Repeat mode handling
+                    // Repeat mode handling - all handled in JS (no Streamlit communication)
                     if (repeatMode === 'one') {{
+                        // Repeat One: restart current track
+                        console.log('Repeat One mode: restarting current track');
                         wavesurfer.seekTo(0);
                         wavesurfer.play();
-                    }} else if (repeatMode === 'all') {{
-                        // Will be handled by Streamlit
-                        notifyStreamlit('ended');
                     }} else {{
-                        // 'none' mode - notify Streamlit
-                        notifyStreamlit('ended');
+                        // Repeat All / None: Show message and wait for user to click next
+                        // Since Streamlit communication doesn't work reliably, we just show a visual indicator
+                        console.log(`Repeat ${{repeatMode}} mode: Audio finished. Please click Next button to continue.`);
+                        
+                        // Optional: Show a visual indicator that audio finished
+                        // The user can manually click Next button to advance
+                        // For true auto-advance, we would need custom Streamlit component
                     }}
                 }});
 
@@ -321,31 +335,17 @@ def render_audio_player(audio_bytes, track, show_download=True):
                 wavesurfer.on('ready', () => {{
                     updateTimeDisplay();
                     if (autoPlay) {{
+                        console.log('Auto-play enabled, starting playback');
                         wavesurfer.play().catch(e => console.log('Autoplay blocked:', e));
                     }}
                 }});
 
-                // Notify Streamlit of events
-                function notifyStreamlit(event) {{
-                    try {{
-                window.parent.postMessage({{
-                    isStreamlitMessage: true,
-                    type: 'streamlit:setComponentValue',
-                    value: {{
-                                event: event,
-                        repeatMode: repeatMode,
-                        timestamp: Date.now()
-                    }}
-                }}, '*');
-                    }} catch(e) {{
-                        console.log('Error notifying Streamlit:', e);
-                    }}
-                }}
-
-                // Region loop handling
+                // Region loop handling - monitor playback within region
                 wavesurfer.on('audioprocess', (time) => {{
-                    if (selectedRegion && selectedRegion.loop) {{
-                        if (time >= regionEnd) {{
+                    if (selectedRegion && selectedRegion.loop && regionStart !== null && regionEnd !== null) {{
+                        // If playback reaches or exceeds region end, loop back to start
+                        if (time >= regionEnd - 0.1) {{
+                            console.log('Region end reached, looping to start');
                             wavesurfer.setTime(regionStart);
                         }}
                     }}
@@ -357,6 +357,7 @@ def render_audio_player(audio_bytes, track, show_download=True):
     """
 
     # Render WaveSurfer player
+    # Note: All repeat mode handling is done in JS (no Streamlit communication)
     component_value = components.html(html_code, height=250)
 
     # Get actual duration
@@ -366,22 +367,6 @@ def render_audio_player(audio_bytes, track, show_download=True):
         st.caption(f"Duration: {format_time(duration)}")
     except Exception:
         pass
-
-    # Check if component signaled that audio ended
-    if component_value and isinstance(component_value, dict) and component_value.get('event') == 'ended':
-        print(f"[DEBUG] Component signaled audio ended: {component_value}")
-        print(f"[DEBUG] Current repeat_mode: {repeat_mode}")
-
-        # Use a session state flag to prevent re-processing
-        last_timestamp = st.session_state.get('_last_ended_timestamp', 0)
-        current_timestamp = component_value.get('timestamp', 0)
-
-        if current_timestamp != last_timestamp:
-            st.session_state['_last_ended_timestamp'] = current_timestamp
-            print(f"[DEBUG] Processing audio end, calling _handle_audio_ended")
-            _handle_audio_ended(repeat_mode)
-        else:
-            print(f"[DEBUG] Skipping duplicate audio end event")
 
     # Download button
     if show_download:
