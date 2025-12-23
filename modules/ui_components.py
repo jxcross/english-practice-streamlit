@@ -205,14 +205,22 @@ def render_playback_controls():
 
     with col3:
         play_label = "⏸ Pause" if st.session_state.get('is_playing', False) else "▶️ Play"
-        if st.button(play_label):
-            st.session_state.is_playing = not st.session_state.get('is_playing', False)
-            st.session_state.play_count = st.session_state.get('play_count', 0) + 1
+        if st.button(play_label, key="play_pause_btn"):
+            new_state = not st.session_state.get('is_playing', False)
+            st.session_state.is_playing = new_state
+            # Use query parameter to trigger JavaScript control
+            # Convert query_params to dict, modify, then update
+            params = dict(st.query_params)
+            params['play_pause'] = 'play' if new_state else 'pause'
+            params['_t'] = str(int(st.session_state.get('play_count', 0) * 1000))
+            st.query_params.update(params)
             st.rerun()
 
     with col4:
         # Next button handles repeat mode
-        next_disabled = st.session_state.current_track >= total_tracks - 1 and st.session_state.get('repeat_mode', 'none') == 'none'
+        # Disable only if 'none' mode and at last track
+        repeat_mode = st.session_state.get('repeat_mode', 'none')
+        next_disabled = (repeat_mode == 'none' and st.session_state.current_track >= total_tracks - 1)
         if st.button("▶ Next", disabled=next_disabled):
             _handle_next_track()
             st.rerun()
@@ -226,23 +234,20 @@ def render_playback_controls():
 
 def _handle_next_track():
     """Handle next track with repeat mode logic"""
+    from modules.audio_player import handle_track_end
+    
     total_tracks = len(st.session_state.tracks)
     current_track = st.session_state.current_track
     repeat_mode = st.session_state.get('repeat_mode', 'none')
 
-    # Increment play count to force audio refresh
-    st.session_state.play_count = st.session_state.get('play_count', 0) + 1
-
-    if repeat_mode == 'one':
-        # Stay on same track (replay)
-        pass
-    elif repeat_mode == 'all':
-        # Next track or loop to first
-        st.session_state.current_track = (current_track + 1) % total_tracks
-    else:  # 'none'
-        # Next track or stop at end
-        if current_track < total_tracks - 1:
-            st.session_state.current_track = current_track + 1
+    # Use handle_track_end for consistent logic
+    next_track, should_play = handle_track_end(current_track, total_tracks, repeat_mode)
+    
+    if should_play:
+        # Increment play count to force audio refresh
+        st.session_state.play_count = st.session_state.get('play_count', 0) + 1
+        # Update track (for Repeat One mode, next_track will be the same as current_track)
+        st.session_state.current_track = next_track
 
 
 def render_voice_selection(tts_engine):
@@ -325,6 +330,48 @@ def render_repeat_mode():
     new_mode = repeat_options[selected_label]
     if new_mode != current_mode:
         st.session_state.repeat_mode = new_mode
+
+    # Show mode description
+    mode_descriptions = {
+        'none': '순차 재생 (마지막 트랙에서 정지)',
+        'one': '현재 트랙 반복',
+        'all': '전체 플레이리스트 반복'
+    }
+    st.caption(f"ℹ️ {mode_descriptions.get(new_mode, '')}")
+
+
+def render_repeat_mode_simple():
+    """Render simple repeat mode selector (none, one, all)"""
+    st.markdown("### 🔁 Repeat Mode")
+
+    # Repeat mode selector
+    repeat_options = {
+        'None': 'none',
+        'Repeat One': 'one',
+        'Repeat All': 'all'
+    }
+
+    current_mode = st.session_state.get('repeat_mode', 'none')
+
+    # Find current index
+    current_index = 0
+    if current_mode in repeat_options.values():
+        current_index = list(repeat_options.values()).index(current_mode)
+
+    selected_label = st.radio(
+        "Repeat Mode",
+        options=list(repeat_options.keys()),
+        index=current_index,
+        horizontal=True,
+        key='repeat_selector_simple'
+    )
+
+    # Update session state if changed
+    new_mode = repeat_options[selected_label]
+    if new_mode != current_mode:
+        st.session_state.repeat_mode = new_mode
+        # Force rerun to apply the change immediately
+        st.rerun()
 
     # Show mode description
     mode_descriptions = {

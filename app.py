@@ -22,7 +22,7 @@ def init_session_state():
     defaults = {
         'tracks': [],
         'current_track': 0,
-        'is_playing': False,
+        'is_playing': True,  # Default to True for auto-play
         'playback_speed': 1.0,
         'repeat_mode': 'none',
         'selected_voice': 'en-US-Standard-F',
@@ -160,7 +160,8 @@ def render_player_screen():
         ui_components.render_playback_controls()
 
         # Repeat mode
-        ui_components.render_repeat_mode()
+        st.markdown("---")
+        ui_components.render_repeat_mode_simple()
 
     with col2:
         # Playlist actions
