@@ -21,8 +21,13 @@ def render_audio_player(audio_bytes, track, show_download=True):
         st.warning("No audio generated")
         return
 
-    # Display audio player
-    st.audio(audio_bytes, format='audio/mp3')
+    # Display audio player with autoplay and start time to force refresh
+    # Adding start_time parameter helps browser treat each playback as unique
+    play_count = st.session_state.get('play_count', 0)
+    st.audio(audio_bytes, format='audio/mp3', autoplay=True, start_time=0)
+
+    # Add a unique marker to help Streamlit detect changes
+    st.markdown(f'<!-- playback_{play_count} -->', unsafe_allow_html=True)
 
     # Get actual duration
     try:

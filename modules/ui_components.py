@@ -184,7 +184,7 @@ def render_api_key_input():
 
 
 def render_playback_controls():
-    """Render playback control buttons"""
+    """Render playback control buttons with auto-advance support"""
     st.markdown("### 🎮 Playback Controls")
 
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -194,28 +194,55 @@ def render_playback_controls():
     with col1:
         if st.button("⏮ First", disabled=st.session_state.current_track == 0):
             st.session_state.current_track = 0
+            st.session_state.play_count = st.session_state.get('play_count', 0) + 1
             st.rerun()
 
     with col2:
         if st.button("◀ Prev", disabled=st.session_state.current_track == 0):
             st.session_state.current_track -= 1
+            st.session_state.play_count = st.session_state.get('play_count', 0) + 1
             st.rerun()
 
     with col3:
         play_label = "⏸ Pause" if st.session_state.get('is_playing', False) else "▶️ Play"
         if st.button(play_label):
             st.session_state.is_playing = not st.session_state.get('is_playing', False)
+            st.session_state.play_count = st.session_state.get('play_count', 0) + 1
             st.rerun()
 
     with col4:
-        if st.button("▶ Next", disabled=st.session_state.current_track >= total_tracks - 1):
-            st.session_state.current_track += 1
+        # Next button handles repeat mode
+        next_disabled = st.session_state.current_track >= total_tracks - 1 and st.session_state.get('repeat_mode', 'none') == 'none'
+        if st.button("▶ Next", disabled=next_disabled):
+            _handle_next_track()
             st.rerun()
 
     with col5:
         if st.button("⏭ Last", disabled=st.session_state.current_track == total_tracks - 1):
             st.session_state.current_track = total_tracks - 1
+            st.session_state.play_count = st.session_state.get('play_count', 0) + 1
             st.rerun()
+
+
+def _handle_next_track():
+    """Handle next track with repeat mode logic"""
+    total_tracks = len(st.session_state.tracks)
+    current_track = st.session_state.current_track
+    repeat_mode = st.session_state.get('repeat_mode', 'none')
+
+    # Increment play count to force audio refresh
+    st.session_state.play_count = st.session_state.get('play_count', 0) + 1
+
+    if repeat_mode == 'one':
+        # Stay on same track (replay)
+        pass
+    elif repeat_mode == 'all':
+        # Next track or loop to first
+        st.session_state.current_track = (current_track + 1) % total_tracks
+    else:  # 'none'
+        # Next track or stop at end
+        if current_track < total_tracks - 1:
+            st.session_state.current_track = current_track + 1
 
 
 def render_voice_selection(tts_engine):
@@ -256,9 +283,21 @@ def render_voice_selection(tts_engine):
 
 
 def render_repeat_mode():
-    """Render repeat mode selector"""
-    st.markdown("### 🔁 Repeat Mode")
+    """Render repeat mode selector with auto-play toggle"""
+    st.markdown("### 🔁 Repeat & Auto-Play")
 
+    # Auto-play toggle
+    auto_play = st.toggle(
+        "🔄 Auto-Play Next Track",
+        value=st.session_state.get('auto_play', False),
+        help="Automatically play next track based on repeat mode",
+        key='auto_play_toggle'
+    )
+    st.session_state.auto_play = auto_play
+
+    st.markdown("---")
+
+    # Repeat mode selector
     repeat_options = {
         'None': 'none',
         'Repeat One': 'one',
@@ -275,7 +314,7 @@ def render_repeat_mode():
             break
 
     selected_label = st.radio(
-        "Mode",
+        "Repeat Mode",
         options=list(repeat_options.keys()),
         index=list(repeat_options.values()).index(current_mode) if current_mode in repeat_options.values() else 0,
         horizontal=True,
@@ -286,6 +325,14 @@ def render_repeat_mode():
     new_mode = repeat_options[selected_label]
     if new_mode != current_mode:
         st.session_state.repeat_mode = new_mode
+
+    # Show mode description
+    mode_descriptions = {
+        'none': '순차 재생 (마지막 트랙에서 정지)',
+        'one': '현재 트랙 반복',
+        'all': '전체 플레이리스트 반복'
+    }
+    st.caption(f"ℹ️ {mode_descriptions.get(new_mode, '')}")
 
 
 def render_playlist_view():
@@ -303,6 +350,7 @@ def render_playlist_view():
         else:
             if st.button(f"{i+1:02d}. {track['english']}", key=f"track_{i}"):
                 st.session_state.current_track = i
+                st.session_state.play_count = st.session_state.get('play_count', 0) + 1
                 st.rerun()
             st.caption(f"    {track['korean']}")
 

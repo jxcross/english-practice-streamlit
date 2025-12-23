@@ -27,12 +27,36 @@ def init_session_state():
         'repeat_mode': 'none',
         'selected_voice': 'en-US-Standard-F',
         'api_key': None,
-        'current_screen': 'upload'  # 'upload' or 'player'
+        'current_screen': 'upload',  # 'upload' or 'player'
+        'auto_play': False,
+        'audio_finished': False,
+        'play_count': 0  # Track number of plays to force audio refresh
     }
 
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+
+def _handle_auto_play_next():
+    """Handle auto-play next track based on repeat mode"""
+    total_tracks = len(st.session_state.tracks)
+    current_track = st.session_state.current_track
+    repeat_mode = st.session_state.get('repeat_mode', 'none')
+
+    # Increment play count to force audio refresh (even for Repeat One)
+    st.session_state.play_count += 1
+
+    if repeat_mode == 'one':
+        # Stay on same track (replay - play_count increment forces refresh)
+        pass
+    elif repeat_mode == 'all':
+        # Next track or loop to first
+        st.session_state.current_track = (current_track + 1) % total_tracks
+    else:  # 'none'
+        # Next track or stop at end
+        if current_track < total_tracks - 1:
+            st.session_state.current_track = current_track + 1
 
 
 def render_upload_screen():
@@ -116,6 +140,19 @@ def render_player_screen():
 
                     # Render audio player with download button
                     render_audio_player(audio_bytes, track, show_download=True)
+
+                    # Auto-play next track button (appears when auto-play is enabled)
+                    if st.session_state.get('auto_play', False):
+                        st.markdown("---")
+                        col_auto1, col_auto2 = st.columns([2, 1])
+
+                        with col_auto1:
+                            st.info("🔄 Auto-Play is enabled. Click 'Play Next' when ready.")
+
+                        with col_auto2:
+                            if st.button("▶️ Play Next", key='auto_play_next', type="primary"):
+                                _handle_auto_play_next()
+                                st.rerun()
 
             except Exception as e:
                 st.error(f"Error generating audio: {str(e)}")
