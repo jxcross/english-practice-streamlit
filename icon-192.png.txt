@@ -1,0 +1,24 @@
+아이콘 파일이 필요합니다.
+
+다음 방법 중 하나로 생성하세요:
+
+1. https://favicon.io/favicon-generator/
+   - Text: "EP" 또는 "🎵"
+   - Background: #ff4081 (핑크)
+   - Font: Outfit
+   - 다운로드 후 192x192, 512x512 크기로 리사이즈
+
+2. Canva (https://canva.com)
+   - 새 디자인 → 192x192
+   - 배경: #0a0e27 (다크 블루)
+   - 텍스트/아이콘 추가
+   - 다운로드
+
+3. 온라인 아이콘 생성기
+   - https://www.pwabuilder.com/imageGenerator
+   - 이미지 업로드하면 모든 크기 자동 생성
+
+생성 후:
+- icon-192.png (192x192)
+- icon-512.png (512x512)
+파일명으로 저장하세요.
