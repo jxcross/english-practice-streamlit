@@ -105,16 +105,16 @@ def render_player_screen():
     current_idx = st.session_state.current_track
     total = len(st.session_state.tracks)
 
-    st.markdown(f"### Track {current_idx + 1} of {total}")
+    #st.markdown(f"### Track {current_idx + 1} of {total}")
 
     # Get current track
-    track = st.session_state.tracks[current_idx]
+    #track = st.session_state.tracks[current_idx]
 
-    # Display text
-    st.markdown(f"## {track['english']}")
-    st.markdown(f"*{track['korean']}*")
+    # # Display text
+    # st.markdown(f"## {track['english']}")
+    # st.markdown(f"*{track['korean']}*")
 
-    st.markdown("---")
+    # st.markdown("---")
 
     # Generate and play audio
     if st.session_state.get('api_key'):
@@ -139,9 +139,9 @@ def render_player_screen():
                         
                         # Show cache status for current track only
                         if i == current_idx and cache_hit:
-                            st.success("✅ Loaded from cache")
+                            st.sidebar.success("✅ Loaded from cache")
                     except Exception as e:
-                        st.warning(f"Error generating audio for track {i+1}: {str(e)}")
+                        st.sidebar.warning(f"Error generating audio for track {i+1}: {str(e)}")
                         audio_bytes_list.append(None)
 
                 # Render audio player with all tracks data
@@ -170,13 +170,13 @@ def render_player_screen():
     else:
         st.warning("⚠️ Please enter your Google Cloud TTS API key in the sidebar to generate audio")
 
-    # Playback controls
-    st.markdown("---")
-    ui_components.render_playback_controls()
+    # # Playback controls
+    # st.markdown("---")
+    # ui_components.render_playback_controls()
 
-    # Repeat mode
-    st.markdown("---")
-    ui_components.render_repeat_mode_simple()
+    # # Repeat mode
+    # st.markdown("---")
+    # ui_components.render_repeat_mode_simple()
 
     # Actions (moved from right sidebar to main screen bottom)
     st.markdown("---")

@@ -24,7 +24,7 @@ def render_csv_upload():
         if error:
             st.error(error)
         else:
-            st.success(f"✅ Loaded {len(tracks)} tracks")
+            st.sidebar.success(f"✅ Loaded {len(tracks)} tracks")
 
             # Preview
             st.markdown("**Preview:**")
@@ -64,7 +64,7 @@ def render_text_paste():
             if error:
                 st.error(error)
             else:
-                st.success(f"✅ Parsed {len(tracks)} tracks")
+                st.sidebar.success(f"✅ Parsed {len(tracks)} tracks")
 
                 # Preview
                 st.markdown("**Preview:**")
@@ -115,7 +115,7 @@ def render_saved_playlists():
         with col3:
             if st.button("🗑️", key=f"delete_{playlist['name']}"):
                 if storage.delete_playlist(playlist['name']):
-                    st.success(f"Deleted '{playlist['name']}'")
+                    st.sidebar.success(f"Deleted '{playlist['name']}'")
                     st.rerun()
 
 
@@ -436,9 +436,9 @@ def render_save_playlist_dialog():
             else:
                 storage = StorageManager()
                 if storage.save_playlist(playlist_name, st.session_state.tracks):
-                    st.success(f"✅ Saved playlist '{playlist_name}'")
+                    st.sidebar.success(f"✅ Saved playlist '{playlist_name}'")
                 else:
-                    st.error("Failed to save playlist")
+                    st.sidebar.error("Failed to save playlist")
 
 
 def render_export_csv():
@@ -476,7 +476,7 @@ def render_download_all_zip(tts_engine):
                 mime="application/zip"
             )
 
-            st.success("✅ ZIP file ready for download!")
+            st.sidebar.success("✅ ZIP file ready for download!")
 
         except Exception as e:
-            st.error(f"Error generating ZIP: {str(e)}")
+            st.sidebar.error(f"Error generating ZIP: {str(e)}")

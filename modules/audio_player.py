@@ -251,37 +251,37 @@ def render_audio_player(audio_bytes_list, tracks, current_track_idx, show_downlo
     # Render using st.components.v1.html
     st.components.v1.html(html, height=600)
 
-    # Download button for current track
-    if show_download:
-        render_download_button(current_track, current_audio, current_track_idx)
+    # # Download button for current track
+    # if show_download:
+    #     render_download_button(current_track, current_audio, current_track_idx)
 
 
 
 
-def render_download_button(track, audio_bytes, index=None):
-    """
-    Render download button for single track
+# def render_download_button(track, audio_bytes, index=None):
+#     """
+#     Render download button for single track
 
-    Args:
-        track: Track dictionary
-        audio_bytes: MP3 audio bytes
-        index: Optional track index for filename
+#     Args:
+#         track: Track dictionary
+#         audio_bytes: MP3 audio bytes
+#         index: Optional track index for filename
 
-    Returns:
-        None
-    """
-    if not audio_bytes:
-        return
+#     Returns:
+#         None
+#     """
+#     if not audio_bytes:
+#         return
 
-    filename = generate_filename(track, index)
+#     filename = generate_filename(track, index)
 
-    st.download_button(
-        label="⬇️ Download MP3",
-        data=audio_bytes,
-        file_name=filename,
-        mime="audio/mpeg",
-        key=f"download_{track.get('english', 'track')[:20]}_{index}"
-    )
+#     st.download_button(
+#         label="⬇️ Download MP3",
+#         data=audio_bytes,
+#         file_name=filename,
+#         mime="audio/mpeg",
+#         key=f"download_{track.get('english', 'track')[:20]}_{index}"
+#     )
 
 
 def create_playlist_zip(tracks, tts_engine, selected_voice):
