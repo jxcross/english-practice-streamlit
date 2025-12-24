@@ -76,7 +76,7 @@ def render_audio_player(audio_bytes_list, tracks, current_track_idx, show_downlo
             <div style="display:inline-block;font-weight:700;font-size:10px;margin-bottom:6px;padding:4px 10px;color:#d32f2f;border:2px solid #d32f2f;border-radius:10px;">Now Playing</div>
 
             <div id="now_en" style="font-size:20px;font-weight:700;line-height:1.5;"></div>
-            <div id="now_ko" style="margin-top:6px;font-size:14px;color:#555;font-weight:600;line-height:1.6;"></div>
+            <div id="now_ko" style="margin-top:6px;font-size:14px;color:#666;font-weight:600;line-height:1.6;"></div>
 
           </div>
         </div>
