@@ -144,12 +144,16 @@ def render_audio_player(audio_bytes_list, tracks, current_track_idx, show_downlo
           const s = scripts[i];
           const isCurrent = (i === index);
           html += `
-            <div style="
-              padding:10px;
-              border:1px solid #eee;
-              border-radius:8px;
-              background:${{isCurrent ? "#eef6ff" : "#fff"}};
-            ">
+            <div id="track-${{i}}" 
+                 data-track-index="${{i}}"
+                 style="
+                   padding:10px;
+                   border:1px solid #eee;
+                   border-radius:8px;
+                   background:${{isCurrent ? "#eef6ff" : "#fff"}};
+                   cursor:pointer;
+                   transition:background 0.2s;
+                 ">
               <div style="font-family:monospace; margin-bottom:6px;">
                 ${{isCurrent ? "<b>=&gt;</b>" : "&nbsp;&nbsp;&nbsp;"}} #${{i+1}}
               </div>
@@ -159,6 +163,43 @@ def render_audio_player(audio_bytes_list, tracks, current_track_idx, show_downlo
           `;
         }}
         listDiv.innerHTML = html;
+        
+        // 각 항목에 클릭 이벤트 추가
+        for (let i = 0; i < scripts.length; i++) {{
+          const trackEl = document.getElementById(`track-${{i}}`);
+          if (trackEl) {{
+            trackEl.addEventListener('click', () => {{
+              loadTrack(i);
+              playCurrent();
+            }});
+            
+            // 호버 효과
+            trackEl.addEventListener('mouseenter', function() {{
+              if (i !== index) {{
+                this.style.background = '#f5f5f5';
+              }} else {{
+                this.style.background = '#e0efff';
+              }}
+            }});
+            
+            trackEl.addEventListener('mouseleave', function() {{
+              if (i !== index) {{
+                this.style.background = '#fff';
+              }} else {{
+                this.style.background = '#eef6ff';
+              }}
+            }});
+          }}
+        }}
+        
+        scrollToCurrent();
+      }}
+      
+      function scrollToCurrent() {{
+        const currentEl = document.getElementById(`track-${{index}}`);
+        if (currentEl) {{
+          currentEl.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+        }}
       }}
 
       function loadTrack(i) {{
@@ -167,6 +208,7 @@ def render_audio_player(audio_bytes_list, tracks, current_track_idx, show_downlo
         audio.src = tracks[index];
         renderNow();
         renderList();
+        // 자동 스크롤은 renderList() 내부에서 처리됨
       }}
 
       function playCurrent() {{
