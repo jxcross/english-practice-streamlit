@@ -208,35 +208,26 @@ def render_audio_player(audio_bytes_list, tracks, current_track_idx, show_downlo
         }});
       }}
       
-      let firstScroll = true;
       function scrollToCurrent() {{
         const currentEl = document.getElementById(`track-${{index}}`);
         if (!currentEl || !listDiv) return;
 
-        const listHeight = listDiv.clientHeight;
-        const itemTop = currentEl.offsetTop;
-        const itemHeight = currentEl.offsetHeight;
+        // 컨테이너(#list) 기준 상대 위치 계산
+        const listRect = listDiv.getBoundingClientRect();
+        const itemRect = currentEl.getBoundingClientRect();
 
-        // 첫 항목이면 무조건 맨 위로
-        if (index === 0) {{
-          listDiv.scrollTo({{ top: 0, behavior: "auto" }});
-          return;
-        }}
+        const itemTopInList = (itemRect.top - listRect.top) + listDiv.scrollTop;
+        const targetCenter = itemTopInList - (listDiv.clientHeight / 2) + (currentEl.offsetHeight / 2);
 
-        // 가운데 정렬 target
-        let target = itemTop - (listHeight / 2) + (itemHeight / 2);
+        // clamp
+        const maxScrollTop = Math.max(0, listDiv.scrollHeight - listDiv.clientHeight);
+        let target = Math.min(Math.max(0, targetCenter), maxScrollTop);
 
-        // ✅ 스크롤 가능한 범위로 clamp
-        const maxScrollTop = listDiv.scrollHeight - listHeight;
-        if (target < 0) target = 0;
-        if (target > maxScrollTop) target = maxScrollTop;
+        // 첫 항목이면 확실히 top
+        if (index === 0) target = 0;
 
-        const behavior = firstScroll ? "auto" : "smooth";
-        firstScroll = false;
-        listDiv.scrollTo({{ top: target, behavior: behavior }});
+        listDiv.scrollTo({{ top: target, behavior: "auto" }}); // 초기 튐 방지: auto 권장
       }}
-
-
 
 
       function loadTrack(i) {{
