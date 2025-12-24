@@ -72,15 +72,17 @@ def render_audio_player(audio_bytes_list, tracks, current_track_idx, show_downlo
         <!-- 상단: 현재 스크립트 -->
         <div style="margin-bottom:12px;">
           <div id="status" style="font-size:13px; opacity:0.75;"></div>
-          <div style="margin-top:6px; padding:10px; background:#f7f7f7; border-radius:8px;">
-            <div style="font-weight:700; font-size:14px; margin-bottom:6px;">Now Playing</div>
-            <div id="now_en" style="font-size:18px; line-height:1.5;"></div>
-            <div id="now_ko" style="margin-top:6px; font-size:18px; line-height:1.6;"></div>
+          <div style="margin-top:6px; padding:10px; background:#f7f7f7; border-radius:10px;">
+            <div style="display:inline-block;font-weight:700;font-size:10px;margin-bottom:6px;padding:4px 10px;color:#d32f2f;border:2px solid #d32f2f;border-radius:10px;">Now Playing</div>
+
+            <div id="now_en" style="font-size:20px;font-weight:700;line-height:1.5;"></div>
+            <div id="now_ko" style="margin-top:6px;font-size:14px;color:#555;font-weight:600;line-height:1.6;"></div>
+
           </div>
         </div>
 
         <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-          <button id="btn">Play (click once)</button>
+          <button id="btn" style="display:none;">Play (click once)</button>
 
           <!-- Repeat One 토글 -->
           <label style="display:flex; align-items:center; gap:6px; user-select:none;">
@@ -154,21 +156,48 @@ def render_audio_player(audio_bytes_list, tracks, current_track_idx, show_downlo
           const isCurrent = (i === index);
           html += `
             <div id="track-${{i}}" 
-                 data-track-index="${{i}}"
-                 style="
-                   padding:10px;
-                   border:1px solid #eee;
-                   border-radius:8px;
-                   background:${{isCurrent ? "#eef6ff" : "#fff"}};
-                   cursor:pointer;
-                   transition:background 0.2s;
-                 ">
-              <div style="font-family:monospace; margin-bottom:6px;">
-                ${{isCurrent ? "<b>=&gt;</b>" : "&nbsp;&nbsp;&nbsp;"}} #${{i+1}}
-              </div>
-              <div>${{esc(s.english)}}</div>
-              <div style="margin-top:4px; opacity:0.85;">${{esc(s.korean)}}</div>
+              data-track-index="${{i}}"
+              style="
+                padding:10px;
+                border:1px solid #eee;
+                border-radius:8px;
+                background:${{isCurrent ? "#eef6ff" : "#fff"}};
+                cursor:pointer;
+                transition:background 0.2s;
+                display:flex;
+                gap:10px;
+                align-items:flex-start;
+              ">
+
+            <!-- 번호 박스 -->
+            <div style="
+                min-width:32px;
+                height:32px;
+                display:flex;
+                align-items:center;
+                justify-content:center;
+                border:1px solid #ccc;
+                border-radius:6px;
+                font-size:13px;
+                color:#777;
+                font-weight:600;
+                flex-shrink:0;
+              ">
+              ${{i + 1}}
             </div>
+
+            <!-- 텍스트 영역 -->
+            <div style="flex:1;">
+              <div style="font-size:16px;font-weight:700;line-height:1.4;">
+                ${{esc(s.english)}}
+              </div>
+              <div style="margin-top:4px;font-size:13px;color:#666;line-height:1.5;">
+                ${{esc(s.korean)}}
+              </div>
+            </div>
+          </div>
+
+
           `;
         }}
         listDiv.innerHTML = html;
