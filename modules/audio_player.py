@@ -63,35 +63,39 @@ def render_audio_player(audio_bytes_list, tracks, current_track_idx, show_downlo
     html = f"""
 <!doctype html>
 <html>
-  <body style="margin:0; padding:12px; font-family:sans-serif;">
-    <div style="padding:10px; border:1px solid #ddd; border-radius:10px;">
+  <body style="margin:0; padding:12px; padding-top:20px; font-family:sans-serif; overflow:auto; ">
+    <!-- <div style="padding:10px; padding-top:16px; border:1px solid #ddd; border-radius:10px;"> -->
+      <div style="padding:10px; border:1px solid #ddd; border-radius:10px; box-sizing:border-box; max-height:calc(100vh - 24px); overflow:auto; ">
 
-      <!-- 상단: 현재 스크립트 -->
-      <div style="margin-bottom:12px;">
-        <div id="status" style="font-size:13px; opacity:0.75;"></div>
-        <div style="margin-top:6px; padding:10px; background:#f7f7f7; border-radius:8px;">
-          <div style="font-weight:700; font-size:14px; margin-bottom:6px;">Now Playing</div>
-          <div id="now_en" style="font-size:18px; line-height:1.5;"></div>
-          <div id="now_ko" style="margin-top:6px; font-size:18px; line-height:1.6;"></div>
+      <!-- Player 영역 -->
+      <div style="padding:12px; border:1px solid #ccc; border-radius:8px; background:#fafafa; margin-top:12px; margin-bottom:16px;">
+        <!-- 상단: 현재 스크립트 -->
+        <div style="margin-bottom:12px;">
+          <div id="status" style="font-size:13px; opacity:0.75;"></div>
+          <div style="margin-top:6px; padding:10px; background:#f7f7f7; border-radius:8px;">
+            <div style="font-weight:700; font-size:14px; margin-bottom:6px;">Now Playing</div>
+            <div id="now_en" style="font-size:18px; line-height:1.5;"></div>
+            <div id="now_ko" style="margin-top:6px; font-size:18px; line-height:1.6;"></div>
+          </div>
         </div>
+
+        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+          <button id="btn">Play (click once)</button>
+
+          <!-- Repeat One 토글 -->
+          <label style="display:flex; align-items:center; gap:6px; user-select:none;">
+            <input id="repeatOne" type="checkbox" {'checked' if initial_repeat_one else ''} />
+            Repeat One (한곡 반복)
+          </label>
+        </div>
+
+        <audio id="player" controls style="width:100%; margin-top:8px;"></audio>
       </div>
 
-      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-        <button id="btn">Play (click once)</button>
-
-        <!-- Repeat One 토글 -->
-        <label style="display:flex; align-items:center; gap:6px; user-select:none;">
-          <input id="repeatOne" type="checkbox" {'checked' if initial_repeat_one else ''} />
-          Repeat One (한곡 반복)
-        </label>
-      </div>
-
-      <audio id="player" controls style="width:100%; margin-top:8px;"></audio>
-
-      <!-- 하단: 스크립트 리스트 (2개 높이 + 스크롤) -->
-      <div style="margin-top:16px;">
+      <!-- 스크립트 리스트 영역 -->
+      <div style="padding:12px; border:1px solid #ccc; border-radius:8px; background:#fafafa;">
         <div style="font-weight:700; font-size:14px; margin-bottom:6px;">
-          Script List (scroll)
+          Script List
         </div>
 
         <div id="list"
@@ -99,9 +103,14 @@ def render_audio_player(audio_bytes_list, tracks, current_track_idx, show_downlo
                display:flex;
                flex-direction:column;
                gap:10px;
-               max-height:260px;
+               max-height:400px;
                overflow-y:auto;
+               overflow-x:hidden;
                padding-right:4px;
+               scroll-padding-top:8px;
+               overscroll-behavior:contain;
+               touch-action:pan-y;
+               -webkit-overflow-scrolling:touch;
              ">
         </div>
       </div>
@@ -192,15 +201,43 @@ def render_audio_player(audio_bytes_list, tracks, current_track_idx, show_downlo
           }}
         }}
         
-        scrollToCurrent();
+        requestAnimationFrame(() => {{
+          requestAnimationFrame(() => {{
+            scrollToCurrent();
+          }});
+        }});
       }}
       
+      let firstScroll = true;
       function scrollToCurrent() {{
         const currentEl = document.getElementById(`track-${{index}}`);
-        if (currentEl) {{
-          currentEl.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+        if (!currentEl || !listDiv) return;
+
+        const listHeight = listDiv.clientHeight;
+        const itemTop = currentEl.offsetTop;
+        const itemHeight = currentEl.offsetHeight;
+
+        // 첫 항목이면 무조건 맨 위로
+        if (index === 0) {{
+          listDiv.scrollTo({{ top: 0, behavior: "auto" }});
+          return;
         }}
+
+        // 가운데 정렬 target
+        let target = itemTop - (listHeight / 2) + (itemHeight / 2);
+
+        // ✅ 스크롤 가능한 범위로 clamp
+        const maxScrollTop = listDiv.scrollHeight - listHeight;
+        if (target < 0) target = 0;
+        if (target > maxScrollTop) target = maxScrollTop;
+
+        const behavior = firstScroll ? "auto" : "smooth";
+        firstScroll = false;
+        listDiv.scrollTo({{ top: target, behavior: behavior }});
       }}
+
+
+
 
       function loadTrack(i) {{
         if (i < 0 || i >= tracks.length || !tracks[i]) return;
@@ -249,7 +286,7 @@ def render_audio_player(audio_bytes_list, tracks, current_track_idx, show_downlo
 """
     
     # Render using st.components.v1.html
-    st.components.v1.html(html, height=600)
+    st.components.v1.html(html, height=800, scrolling=True)
 
     # # Download button for current track
     # if show_download:
