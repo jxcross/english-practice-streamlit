@@ -63,26 +63,38 @@ def render_text_paste():
 
             if error:
                 st.error(error)
+                # Clear any previously parsed tracks
+                if 'parsed_tracks' in st.session_state:
+                    del st.session_state['parsed_tracks']
             else:
+                # Store parsed tracks in session state
+                st.session_state['parsed_tracks'] = tracks
                 st.sidebar.success(f"✅ Parsed {len(tracks)} tracks")
-
-                # Preview
-                st.markdown("**Preview:**")
-                for i, track in enumerate(tracks[:3]):
-                    st.text(f"{i+1}. {track['english']}")
-                    st.caption(f"   {track['korean']}")
-
-                if len(tracks) > 3:
-                    st.caption(f"   ... and {len(tracks) - 3} more")
-
-                # Load button
-                if st.button("Load Playlist", key='load_text'):
-                    st.session_state.tracks = tracks
-                    st.session_state.current_track = 0
-                    st.session_state.current_screen = 'player'
-                    st.rerun()
+                st.rerun()
         else:
             st.warning("Please paste some text first")
+
+    # Show preview and load button if we have parsed tracks
+    if 'parsed_tracks' in st.session_state and st.session_state['parsed_tracks']:
+        tracks = st.session_state['parsed_tracks']
+
+        # Preview
+        st.markdown("**Preview:**")
+        for i, track in enumerate(tracks[:3]):
+            st.text(f"{i+1}. {track['english']}")
+            st.caption(f"   {track['korean']}")
+
+        if len(tracks) > 3:
+            st.caption(f"   ... and {len(tracks) - 3} more")
+
+        # Load button
+        if st.button("Load Playlist", key='load_text'):
+            st.session_state.tracks = tracks
+            st.session_state.current_track = 0
+            st.session_state.current_screen = 'player'
+            # Clear parsed tracks after loading
+            del st.session_state['parsed_tracks']
+            st.rerun()
 
 
 def render_saved_playlists():
