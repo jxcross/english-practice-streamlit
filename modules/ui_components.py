@@ -251,13 +251,13 @@ def _handle_next_track():
 
 
 def render_voice_selection(tts_engine):
-    """Render voice selection dropdown"""
-    st.markdown("### 🎤 Voice Selection")
+    """Render voice selection dropdown in sidebar"""
+    st.sidebar.markdown("### 🎤 Voice Selection")
 
     voices = tts_engine.get_available_voices()
 
     if not voices:
-        st.warning("No voices available. Please check your API key.")
+        st.sidebar.warning("No voices available. Please check your API key.")
         return
 
     # Create voice options
@@ -274,7 +274,7 @@ def render_voice_selection(tts_engine):
             break
 
     # Voice selector
-    selected_desc = st.selectbox(
+    selected_desc = st.sidebar.selectbox(
         "Select Voice",
         options=list(voice_options.keys()),
         index=list(voice_options.values()).index(current_voice) if current_voice in voice_options.values() else 0,
@@ -401,26 +401,6 @@ def render_repeat_mode_simple():
         'all': '전체 플레이리스트 반복'
     }
     st.caption(f"ℹ️ {mode_descriptions.get(new_mode, '')}")
-
-
-def render_playlist_view():
-    """Render playlist track list"""
-    st.markdown("### 📜 Playlist")
-
-    tracks = st.session_state.tracks
-    current_idx = st.session_state.current_track
-
-    for i, track in enumerate(tracks):
-        # Highlight current track
-        if i == current_idx:
-            st.markdown(f"**▶️ {i+1:02d}. {track['english']}**")
-            st.caption(f"    *{track['korean']}*")
-        else:
-            if st.button(f"{i+1:02d}. {track['english']}", key=f"track_{i}"):
-                st.session_state.current_track = i
-                st.session_state.play_count = st.session_state.get('play_count', 0) + 1
-                st.rerun()
-            st.caption(f"    {track['korean']}")
 
 
 def render_playlist_actions(tts_engine):

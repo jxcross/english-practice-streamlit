@@ -98,114 +98,90 @@ def render_player_screen():
         st.warning("No tracks loaded. Please go back and load a playlist.")
         return
 
-    # Initialize TTS engine
+    # Initialize TTS engine (needed for actions)
     tts_engine = TTSEngine(api_key=st.session_state.get('api_key'))
 
-    # Main layout
-    col1, col2 = st.columns([3, 1])
+    # Track info
+    current_idx = st.session_state.current_track
+    total = len(st.session_state.tracks)
 
-    with col1:
-        # Track info
-        current_idx = st.session_state.current_track
-        total = len(st.session_state.tracks)
+    st.markdown(f"### Track {current_idx + 1} of {total}")
 
-        st.markdown(f"### Track {current_idx + 1} of {total}")
+    # Get current track
+    track = st.session_state.tracks[current_idx]
 
-        # Get current track
-        track = st.session_state.tracks[current_idx]
+    # Display text
+    st.markdown(f"## {track['english']}")
+    st.markdown(f"*{track['korean']}*")
 
-        # Display text
-        st.markdown(f"## {track['english']}")
-        st.markdown(f"*{track['korean']}*")
+    st.markdown("---")
 
-        st.markdown("---")
-
-        # Generate and play audio
-        if st.session_state.get('api_key'):
-            try:
-                selected_voice = st.session_state.get('selected_voice', 'en-US-Standard-F')
+    # Generate and play audio
+    if st.session_state.get('api_key'):
+        try:
+            selected_voice = st.session_state.get('selected_voice', 'en-US-Standard-F')
+            
+            # Generate audio for all tracks (or next 20 tracks for performance)
+            total_tracks = len(st.session_state.tracks)
+            max_tracks_to_load = min(total_tracks, 20)  # Load up to 20 tracks at once
+            
+            with st.spinner(f"Generating audio for {max_tracks_to_load} tracks..."):
+                audio_bytes_list = []
+                tracks_to_load = st.session_state.tracks[:max_tracks_to_load]
                 
-                # Generate audio for all tracks (or next 20 tracks for performance)
-                total_tracks = len(st.session_state.tracks)
-                max_tracks_to_load = min(total_tracks, 20)  # Load up to 20 tracks at once
-                
-                with st.spinner(f"Generating audio for {max_tracks_to_load} tracks..."):
-                    audio_bytes_list = []
-                    tracks_to_load = st.session_state.tracks[:max_tracks_to_load]
-                    
-                    for i, t in enumerate(tracks_to_load):
-                        try:
-                            audio_bytes, duration, cache_hit = tts_engine.generate_audio(
-                                text=t['english'],
-                                voice=selected_voice
-                            )
-                            audio_bytes_list.append(audio_bytes)
-                            
-                            # Show cache status for current track only
-                            if i == current_idx and cache_hit:
-                                st.success("✅ Loaded from cache")
-                        except Exception as e:
-                            st.warning(f"Error generating audio for track {i+1}: {str(e)}")
-                            audio_bytes_list.append(None)
+                for i, t in enumerate(tracks_to_load):
+                    try:
+                        audio_bytes, duration, cache_hit = tts_engine.generate_audio(
+                            text=t['english'],
+                            voice=selected_voice
+                        )
+                        audio_bytes_list.append(audio_bytes)
+                        
+                        # Show cache status for current track only
+                        if i == current_idx and cache_hit:
+                            st.success("✅ Loaded from cache")
+                    except Exception as e:
+                        st.warning(f"Error generating audio for track {i+1}: {str(e)}")
+                        audio_bytes_list.append(None)
 
-                    # Render audio player with all tracks data
-                    render_audio_player(
-                        audio_bytes_list=audio_bytes_list,
-                        tracks=tracks_to_load,
-                        current_track_idx=current_idx,
-                        show_download=True
-                    )
+                # Render audio player with all tracks data
+                render_audio_player(
+                    audio_bytes_list=audio_bytes_list,
+                    tracks=tracks_to_load,
+                    current_track_idx=current_idx,
+                    show_download=True
+                )
 
-                    # Auto-play info (appears when auto-play is enabled)
-                    if st.session_state.get('auto_play', False):
-                        st.markdown("---")
-                        repeat_mode = st.session_state.get('repeat_mode', 'none')
-                        mode_desc = {
-                            'none': '순차 재생 (마지막 트랙에서 정지)',
-                            'one': '현재 트랙 반복',
-                            'all': '전체 플레이리스트 반복'
-                        }
-                        st.info(f"🔄 Auto-Play 활성화: {mode_desc.get(repeat_mode, '')} - 오디오 재생이 끝나면 자동으로 다음 트랙으로 진행됩니다.")
+                # Auto-play info (appears when auto-play is enabled)
+                if st.session_state.get('auto_play', False):
+                    st.markdown("---")
+                    repeat_mode = st.session_state.get('repeat_mode', 'none')
+                    mode_desc = {
+                        'none': '순차 재생 (마지막 트랙에서 정지)',
+                        'one': '현재 트랙 반복',
+                        'all': '전체 플레이리스트 반복'
+                    }
+                    st.info(f"🔄 Auto-Play 활성화: {mode_desc.get(repeat_mode, '')} - 오디오 재생이 끝나면 자동으로 다음 트랙으로 진행됩니다.")
 
-            except Exception as e:
-                st.error(f"Error generating audio: {str(e)}")
-                st.info("Please check your API key and try again")
+        except Exception as e:
+            st.error(f"Error generating audio: {str(e)}")
+            st.info("Please check your API key and try again")
 
-        else:
-            st.warning("⚠️ Please enter your Google Cloud TTS API key in the sidebar to generate audio")
+    else:
+        st.warning("⚠️ Please enter your Google Cloud TTS API key in the sidebar to generate audio")
 
-        # Playback controls
-        st.markdown("---")
-        ui_components.render_playback_controls()
+    # Playback controls
+    st.markdown("---")
+    ui_components.render_playback_controls()
 
-        # Repeat mode
-        st.markdown("---")
-        ui_components.render_repeat_mode_simple()
+    # Repeat mode
+    st.markdown("---")
+    ui_components.render_repeat_mode_simple()
 
-    with col2:
-        # Playlist actions
-        st.markdown("### Actions")
-        ui_components.render_playlist_actions(tts_engine)
-
-        st.markdown("---")
-
-        # Voice selection
-        if st.session_state.get('api_key'):
-            ui_components.render_voice_selection(tts_engine)
-
-            st.markdown("---")
-
-            # Cache stats
-            st.markdown("### 💾 Cache Stats")
-            stats = tts_engine.get_cache_stats()
-            st.metric("Cached Items", stats['items'])
-            st.metric("Cache Size", f"{stats['size_mb']:.1f} MB / {stats['max_size_mb']} MB")
-            st.progress(stats['usage_percent'] / 100)
-
-        st.markdown("---")
-
-        # Playlist view
-        ui_components.render_playlist_view()
+    # Actions (moved from right sidebar to main screen bottom)
+    st.markdown("---")
+    st.markdown("### Actions")
+    ui_components.render_playlist_actions(tts_engine)
 
 
 def main():
@@ -218,21 +194,24 @@ def main():
 
     st.sidebar.markdown("---")
 
-    # Sidebar info
-    st.sidebar.markdown("### ℹ️ About")
-    st.sidebar.info(
-        "English Practice Player allows you to create playlists of "
-        "English-Korean sentence pairs and practice listening with "
-        "high-quality Google Cloud Text-to-Speech."
-    )
+    # Cache stats (moved from right sidebar)
+    if st.session_state.get('api_key'):
+        tts_engine = TTSEngine(api_key=st.session_state.get('api_key'))
+        
+        # Voice selection (moved to bottom of sidebar)
+        ui_components.render_voice_selection(tts_engine)
 
-    st.sidebar.markdown("### 📖 How to Use")
-    st.sidebar.markdown("""
-1. **Get API Key**: Obtain a Google Cloud TTS API key
-2. **Upload Data**: CSV file or paste text
-3. **Select Voice**: Choose from available voices
-4. **Play & Practice**: Listen and download MP3s
-""")
+        st.sidebar.markdown("---")
+        
+        st.sidebar.markdown("### 💾 Cache Stats")
+        stats = tts_engine.get_cache_stats()
+        st.sidebar.metric("Cached Items", stats['items'])
+        st.sidebar.metric("Cache Size", f"{stats['size_mb']:.1f} MB / {stats['max_size_mb']} MB")
+        st.sidebar.progress(stats['usage_percent'] / 100)
+
+        
+
+
 
     # Main routing
     if st.session_state.current_screen == 'upload':
