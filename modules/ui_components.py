@@ -408,9 +408,8 @@ def render_playlist_actions(tts_engine):
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        # Save playlist
-        if st.button("💾 Save Playlist"):
-            render_save_playlist_dialog()
+        # Save playlist - always show form
+        render_save_playlist_dialog()
 
     with col2:
         # Export CSV
@@ -425,20 +424,46 @@ def render_playlist_actions(tts_engine):
 
 def render_save_playlist_dialog():
     """Render save playlist dialog"""
-    with st.form("save_playlist_form"):
-        playlist_name = st.text_input("Playlist Name", placeholder="My Playlist")
+    # Display success/error messages first
+    if st.session_state.get('playlist_save_success'):
+        st.success(f"✅ Saved playlist '{st.session_state.playlist_save_success}'")
+        st.session_state['playlist_save_success'] = None
+    
+    if st.session_state.get('playlist_save_error'):
+        st.error(st.session_state['playlist_save_error'])
+        st.session_state['playlist_save_error'] = None
+    
+    # Check if tracks exist
+    if not st.session_state.get('tracks'):
+        st.warning("No tracks to save. Please load a playlist first.")
+        return
+    
+    with st.form("save_playlist_form", clear_on_submit=True):
+        playlist_name = st.text_input("Playlist Name", placeholder="My Playlist", key="playlist_name_input")
 
-        submitted = st.form_submit_button("Save")
+        submitted = st.form_submit_button("💾 Save Playlist")
 
         if submitted:
-            if not playlist_name:
-                st.error("Please enter a playlist name")
+            if not playlist_name or not playlist_name.strip():
+                st.session_state['playlist_save_error'] = "Please enter a playlist name"
+                st.rerun()
             else:
-                storage = StorageManager()
-                if storage.save_playlist(playlist_name, st.session_state.tracks):
-                    st.sidebar.success(f"✅ Saved playlist '{playlist_name}'")
-                else:
-                    st.sidebar.error("Failed to save playlist")
+                try:
+                    storage = StorageManager()
+                    tracks = st.session_state.get('tracks', [])
+                    if not tracks:
+                        st.session_state['playlist_save_error'] = "No tracks to save"
+                        st.rerun()
+                    elif storage.save_playlist(playlist_name.strip(), tracks):
+                        st.session_state['playlist_save_success'] = playlist_name.strip()
+                        st.session_state['playlist_save_error'] = None
+                        st.rerun()
+                    else:
+                        st.session_state['playlist_save_error'] = "Failed to save playlist. Please try again."
+                        st.rerun()
+                except Exception as e:
+                    st.session_state['playlist_save_error'] = f"Error: {str(e)}"
+                    st.rerun()
 
 
 def render_export_csv():
