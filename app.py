@@ -123,19 +123,38 @@ def render_player_screen():
         # Generate and play audio
         if st.session_state.get('api_key'):
             try:
-                with st.spinner("Generating audio..."):
-                    selected_voice = st.session_state.get('selected_voice', 'en-US-Standard-F')
+                selected_voice = st.session_state.get('selected_voice', 'en-US-Standard-F')
+                
+                # Generate audio for all tracks (or next 20 tracks for performance)
+                total_tracks = len(st.session_state.tracks)
+                max_tracks_to_load = min(total_tracks, 20)  # Load up to 20 tracks at once
+                
+                with st.spinner(f"Generating audio for {max_tracks_to_load} tracks..."):
+                    audio_bytes_list = []
+                    tracks_to_load = st.session_state.tracks[:max_tracks_to_load]
+                    
+                    for i, t in enumerate(tracks_to_load):
+                        try:
+                            audio_bytes, duration, cache_hit = tts_engine.generate_audio(
+                                text=t['english'],
+                                voice=selected_voice
+                            )
+                            audio_bytes_list.append(audio_bytes)
+                            
+                            # Show cache status for current track only
+                            if i == current_idx and cache_hit:
+                                st.success("✅ Loaded from cache")
+                        except Exception as e:
+                            st.warning(f"Error generating audio for track {i+1}: {str(e)}")
+                            audio_bytes_list.append(None)
 
-                    audio_bytes, duration, cache_hit = tts_engine.generate_audio(
-                        text=track['english'],
-                        voice=selected_voice
+                    # Render audio player with all tracks data
+                    render_audio_player(
+                        audio_bytes_list=audio_bytes_list,
+                        tracks=tracks_to_load,
+                        current_track_idx=current_idx,
+                        show_download=True
                     )
-
-                    if cache_hit:
-                        st.success("✅ Loaded from cache")
-
-                    # Render audio player with download button
-                    render_audio_player(audio_bytes, track, show_download=True)
 
                     # Auto-play info (appears when auto-play is enabled)
                     if st.session_state.get('auto_play', False):

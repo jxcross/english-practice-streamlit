@@ -331,6 +331,17 @@ def render_repeat_mode():
     if new_mode != current_mode:
         st.session_state.repeat_mode = new_mode
 
+        # Repeat One/All이면 연속재생을 위해 auto_play 켬
+        if new_mode in ['one', 'all']:
+            st.session_state.auto_play = True
+        else:
+            st.session_state.auto_play = False
+
+        # st.audio는 key가 없으니, play_count로 새 오디오 렌더 유도
+        st.session_state.play_count = st.session_state.get('play_count', 0) + 1
+
+        st.rerun()
+
     # Show mode description
     mode_descriptions = {
         'none': '순차 재생 (마지막 트랙에서 정지)',
@@ -370,7 +381,17 @@ def render_repeat_mode_simple():
     new_mode = repeat_options[selected_label]
     if new_mode != current_mode:
         st.session_state.repeat_mode = new_mode
-        # Force rerun to apply the change immediately
+        # Enable auto-play for Repeat One and Repeat All modes
+        if new_mode in ['one', 'all']:
+            st.session_state.auto_play = True
+            # If switching to Repeat All, start from the first track
+            if new_mode == 'all':
+                st.session_state.current_track = 0
+        else:
+            # For 'none' mode, disable auto-play
+            st.session_state.auto_play = False
+        
+        # Force rerun to apply the change immediately (JS will pick up new repeat mode)
         st.rerun()
 
     # Show mode description

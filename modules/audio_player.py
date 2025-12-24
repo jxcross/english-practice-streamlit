@@ -2,264 +2,218 @@
 Audio player module for playback and MP3 download functionality
 """
 import streamlit as st
-import streamlit.components.v1 as components
+import base64
 from utils.audio_utils import format_time, generate_filename, get_audio_duration_from_bytes
 
 
-def render_audio_player(audio_bytes, track, show_download=True, use_custom_component=False):
+def render_audio_player(audio_bytes_list, tracks, current_track_idx, show_download=True, use_custom_component=False):
     """
-    Render audio player using st.audio() with auto-advance support
+    Render audio player with JS-based track switching using st.components.v1.html
 
     Args:
-        audio_bytes: MP3 audio bytes
-        track: Track dictionary {'english': '...', 'korean': '...'}
+        audio_bytes_list: List of MP3 audio bytes for all tracks
+        tracks: List of track dictionaries [{'english': '...', 'korean': '...'}, ...]
+        current_track_idx: Current track index (0-based)
         show_download: Whether to show download button
         use_custom_component: Ignored (kept for compatibility)
 
     Returns:
         None
     """
-    if not audio_bytes:
+    if not audio_bytes_list or not tracks:
         st.warning("No audio generated")
         return
 
     # Get current state
-    play_count = st.session_state.get('play_count', 0)
     repeat_mode = st.session_state.get('repeat_mode', 'none')
-    auto_play = st.session_state.get('auto_play', False)
     
-    # Get audio duration
-    duration = None
+    # Get current track info for display
+    current_track = tracks[current_track_idx] if current_track_idx < len(tracks) else tracks[0]
+    current_audio = audio_bytes_list[current_track_idx] if current_track_idx < len(audio_bytes_list) else audio_bytes_list[0]
+    
+    # Get audio duration for current track
     try:
-        duration = get_audio_duration_from_bytes(audio_bytes)
+        duration = get_audio_duration_from_bytes(current_audio)
         st.caption(f"Duration: {format_time(duration)}")
     except Exception:
         pass
 
-    # Render audio player using st.audio()
-    # Note: st.audio() doesn't support 'key' parameter
-    # Use play_count to create unique identifier for JavaScript
-    audio_key = f"audio_player_{play_count}"
-    st.audio(audio_bytes, format="audio/mp3", autoplay=auto_play)
-
-    # Inject JavaScript to detect audio end and handle repeat mode
-    _inject_audio_end_listener(audio_key, repeat_mode)
-
-    # Download button
-    if show_download:
-        render_download_button(track, audio_bytes)
-
-
-def _inject_audio_end_listener(audio_key, repeat_mode):
-    """
-    Inject JavaScript to listen for audio ended event and trigger auto-advance
+    # Convert all audio bytes to base64 data URLs
+    import json
+    tracks_data_urls = []
+    for audio_bytes in audio_bytes_list:
+        if audio_bytes:
+            b64 = base64.b64encode(audio_bytes).decode()
+            tracks_data_urls.append(f"data:audio/mpeg;base64,{b64}")
+        else:
+            tracks_data_urls.append(None)
     
-    Args:
-        audio_key: Streamlit audio component key
-        repeat_mode: Current repeat mode ('none', 'one', 'all')
-    """
-    # JavaScript code to detect audio end and trigger auto-advance
-    js_code = f"""
+    # Ensure current_track_idx is valid
+    if current_track_idx >= len(tracks_data_urls):
+        current_track_idx = 0
+    
+    # Prepare tracks and scripts data for JS
+    tracks_js = json.dumps(tracks_data_urls)
+    scripts_js = json.dumps(tracks, ensure_ascii=False)
+    
+    # Determine initial repeat one state
+    initial_repeat_one = (repeat_mode == 'one')
+    
+    # Create HTML component with enhanced JS player
+    html = f"""
+<!doctype html>
+<html>
+  <body style="margin:0; padding:12px; font-family:sans-serif;">
+    <div style="padding:10px; border:1px solid #ddd; border-radius:10px;">
+
+      <!-- 상단: 현재 스크립트 -->
+      <div style="margin-bottom:12px;">
+        <div id="status" style="font-size:13px; opacity:0.75;"></div>
+        <div style="margin-top:6px; padding:10px; background:#f7f7f7; border-radius:8px;">
+          <div style="font-weight:700; font-size:14px; margin-bottom:6px;">Now Playing</div>
+          <div id="now_en" style="font-size:18px; line-height:1.5;"></div>
+          <div id="now_ko" style="margin-top:6px; font-size:18px; line-height:1.6;"></div>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        <button id="btn">Play (click once)</button>
+
+        <!-- Repeat One 토글 -->
+        <label style="display:flex; align-items:center; gap:6px; user-select:none;">
+          <input id="repeatOne" type="checkbox" {'checked' if initial_repeat_one else ''} />
+          Repeat One (한곡 반복)
+        </label>
+      </div>
+
+      <audio id="player" controls style="width:100%; margin-top:8px;"></audio>
+
+      <!-- 하단: 스크립트 리스트 (2개 높이 + 스크롤) -->
+      <div style="margin-top:16px;">
+        <div style="font-weight:700; font-size:14px; margin-bottom:6px;">
+          Script List (scroll)
+        </div>
+
+        <div id="list"
+             style="
+               display:flex;
+               flex-direction:column;
+               gap:10px;
+               max-height:260px;
+               overflow-y:auto;
+               padding-right:4px;
+             ">
+        </div>
+      </div>
+
+    </div>
+
 <script>
-(function() {{
-    const audioKey = '{audio_key}';
-    const repeatMode = '{repeat_mode}';
-    let processedAudio = null;
-    let hasEnded = false;
-    
-    function findAndAttachToAudio() {{
-        // Find the audio element created by st.audio()
-        const audioElements = document.querySelectorAll('audio');
-        
-        if (audioElements.length === 0) {{
-            // Audio not ready yet, retry
-            setTimeout(findAndAttachToAudio, 100);
-            return;
+      const tracks = {tracks_js};
+      const scripts = {scripts_js};
+
+      let index = {current_track_idx};
+
+      const audio = document.getElementById("player");
+      const btn = document.getElementById("btn");
+      const repeatOneEl = document.getElementById("repeatOne");
+
+      const status = document.getElementById("status");
+      const nowEn = document.getElementById("now_en");
+      const nowKo = document.getElementById("now_ko");
+      const listDiv = document.getElementById("list");
+
+      function esc(s) {{
+        return String(s)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
+      }}
+
+      function renderNow() {{
+        const s = scripts[index];
+        const mode = repeatOneEl.checked ? "Repeat One" : "Repeat All";
+        status.textContent = `Track ${{index+1}} / ${{tracks.length}}  ·  ${{mode}}`;
+        nowEn.textContent = s.english;
+        nowKo.textContent = s.korean;
+      }}
+
+      function renderList() {{
+        let html = "";
+        for (let i = 0; i < scripts.length; i++) {{
+          const s = scripts[i];
+          const isCurrent = (i === index);
+          html += `
+            <div style="
+              padding:10px;
+              border:1px solid #eee;
+              border-radius:8px;
+              background:${{isCurrent ? "#eef6ff" : "#fff"}};
+            ">
+              <div style="font-family:monospace; margin-bottom:6px;">
+                ${{isCurrent ? "<b>=&gt;</b>" : "&nbsp;&nbsp;&nbsp;"}} #${{i+1}}
+              </div>
+              <div>${{esc(s.english)}}</div>
+              <div style="margin-top:4px; opacity:0.85;">${{esc(s.korean)}}</div>
+            </div>
+          `;
         }}
-        
-        // Get the most recent audio element (should be the one we just created)
-        const audio = audioElements[audioElements.length - 1];
-        
-        // Skip if already processed
-        if (processedAudio === audio) {{
-            return;
+        listDiv.innerHTML = html;
+      }}
+
+      function loadTrack(i) {{
+        if (i < 0 || i >= tracks.length || !tracks[i]) return;
+        index = i;
+        audio.src = tracks[index];
+        renderNow();
+        renderList();
+      }}
+
+      function playCurrent() {{
+        const p = audio.play();
+        if (p) p.catch(() => {{}});
+      }}
+
+      // 초기 로드
+      loadTrack({current_track_idx});
+
+      btn.onclick = () => playCurrent();
+
+      // Repeat One 토글 바뀌면 상태표시 갱신
+      repeatOneEl.addEventListener("change", () => {{
+        renderNow();
+      }});
+
+      // 곡 끝났을 때 동작
+      audio.addEventListener("ended", () => {{
+        if (repeatOneEl.checked) {{
+          // ✅ 한 곡 반복
+          loadTrack(index);
+          playCurrent();
+        }} else {{
+          // ✅ 전체 반복(다음 곡) - 마지막에서도 첫 번째로 돌아감
+          loadTrack((index + 1) % tracks.length);
+          playCurrent();
         }}
-        
-        processedAudio = audio;
-        hasEnded = false;
-        
-        console.log('Attaching audio end listener to audio element, repeat mode:', repeatMode);
-        
-        // Listen for 'ended' event
-        audio.addEventListener('ended', function() {{
-            if (hasEnded) return; // Prevent duplicate triggers
-            hasEnded = true;
-            console.log('Audio playback ended, repeat mode:', repeatMode);
-            
-            // Handle repeat modes
-            if (repeatMode === 'one') {{
-                // Repeat One: restart current track
-                console.log('Repeat One: restarting current track');
-                audio.currentTime = 0;
-                audio.play().catch(e => console.log('Error restarting audio:', e));
-                hasEnded = false; // Reset flag for next play
-            }} else {{
-                // Repeat All / None: notify Streamlit to advance to next track
-                console.log('Repeat ' + repeatMode + ': triggering auto-advance');
-            triggerAutoAdvance();
-            }}
-        }}, {{ once: false }});
-        
-        // Also monitor timeupdate as a fallback
-        let lastCheckTime = 0;
-        audio.addEventListener('timeupdate', function() {{
-            if (hasEnded) return;
-            
-            const currentTime = audio.currentTime;
-            const duration = audio.duration;
-            const isPlaying = !audio.paused;
-            
-            // Check if audio has finished (within 0.1 seconds of end)
-            if (duration && duration > 0 && currentTime >= duration - 0.1 && isPlaying) {{
-                if (!hasEnded) {{
-                    hasEnded = true;
-                    console.log('Audio finished (timeupdate fallback), repeat mode:', repeatMode);
-                    
-                    if (repeatMode === 'one') {{
-                        audio.currentTime = 0;
-                        audio.play().catch(e => console.log('Error restarting audio:', e));
-                        hasEnded = false;
-                    }} else {{
-                    triggerAutoAdvance();
-                    }}
-                }}
-            }}
-            
-            lastCheckTime = currentTime;
-        }});
-    }}
-        
-        function triggerAutoAdvance() {{
-            // Trigger Streamlit rerun via URL parameter
-            try {{
-            const url = new URL(window.location.href);
-            const timestamp = Date.now().toString();
-            
-            // Remove existing audio_end param
-            url.searchParams.delete('audio_end');
-                // Add new one with timestamp to force reload
-            url.searchParams.set('audio_end', timestamp);
-            url.searchParams.set('repeat_mode', repeatMode);
-            
-            console.log('Triggering auto-advance with URL:', url.toString());
-            window.location.href = url.toString();
-        }} catch(e) {{
-            console.error('Error triggering auto-advance:', e);
-        }}
-    }}
-    
-    // Start looking for audio element
-    // Use MutationObserver to detect when audio is added to DOM
-                const observer = new MutationObserver(function(mutations) {{
-                    let shouldCheck = false;
-                    mutations.forEach(function(mutation) {{
-                        if (mutation.addedNodes.length > 0) {{
-                            mutation.addedNodes.forEach(function(node) {{
-                                if (node.nodeType === 1) {{ // Element node
-                                    if (node.tagName === 'AUDIO' || (node.querySelector && node.querySelector('audio'))) {{
-                                        shouldCheck = true;
-                                    }}
-                                }}
-                            }});
-                        }}
-                    }});
-                    
-                    if (shouldCheck) {{
-            setTimeout(findAndAttachToAudio, 100);
-                    }}
-                }});
+      }});
                 
-                // Start observing
-    if (document.body) {{
-        observer.observe(document.body, {{
-                    childList: true,
-                    subtree: true
-        }});
-    }}
-    
-    // Also check immediately and with delays
-    findAndAttachToAudio();
-    setTimeout(findAndAttachToAudio, 200);
-    setTimeout(findAndAttachToAudio, 500);
-    setTimeout(findAndAttachToAudio, 1000);
-}})();
+      audio.addEventListener("play", () => {{
+        renderNow();
+        renderList();
+      }});
 </script>
+  </body>
+</html>
 """
     
-    # Inject the JavaScript using components.html
-    components.html(js_code, height=0)
-    
-    # Check for audio_end event from query parameters
-    query_params = st.query_params
-    audio_end_param = query_params.get('audio_end')
-    url_repeat_mode = query_params.get('repeat_mode')
-    
-    if audio_end_param:
-        # Use a session state flag to prevent re-processing
-        last_timestamp = st.session_state.get('_last_ended_timestamp', 0)
-        current_timestamp = int(audio_end_param) if audio_end_param.isdigit() else 0
+    # Render using st.components.v1.html
+    st.components.v1.html(html, height=600)
 
-        if current_timestamp != last_timestamp:
-            st.session_state['_last_ended_timestamp'] = current_timestamp
-            print(f"[DEBUG] Audio end event detected: timestamp={current_timestamp}, repeat_mode={url_repeat_mode}")
-            
-            # Use repeat mode from URL (most recent) or session state
-            effective_repeat_mode = url_repeat_mode if url_repeat_mode else repeat_mode
-            
-            # Remove the parameters to prevent re-processing
-            params = dict(st.query_params)
-            params.pop('audio_end', None)
-            params.pop('repeat_mode', None)
-            st.query_params.update(params)
-            
-            # Handle audio ended based on repeat mode
-            if effective_repeat_mode in ['all', 'none']:
-                _handle_audio_ended(effective_repeat_mode)
-            else:
-                print(f"[DEBUG] Repeat mode is '{effective_repeat_mode}', skipping auto-advance")
+    # Download button for current track
+    if show_download:
+        render_download_button(current_track, current_audio, current_track_idx)
 
 
-def _handle_audio_ended(repeat_mode):
-    """
-    Handle audio ended event - advance to next track based on repeat mode
-
-    Args:
-        repeat_mode: Current repeat mode ('none', 'one', 'all')
-    """
-    total_tracks = len(st.session_state.tracks)
-    current_track = st.session_state.current_track
-
-    print(f"[DEBUG] _handle_audio_ended called: current_track={current_track}, total={total_tracks}, mode={repeat_mode}")
-
-    # Use handle_track_end to determine next track (same module, no import needed)
-    next_track, should_play = handle_track_end(current_track, total_tracks, repeat_mode)
-
-    print(f"[DEBUG] handle_track_end returned: next_track={next_track}, should_play={should_play}")
-
-    if should_play:
-        # Update track and force audio refresh
-        # For Repeat One mode, next_track will be the same as current_track
-        st.session_state.current_track = next_track
-        st.session_state.play_count = st.session_state.get('play_count', 0) + 1
-        
-        # Enable auto-play when advancing via repeat all/one to ensure continuous playback
-        if repeat_mode in ['all', 'one']:
-            st.session_state.auto_play = True
-        
-        print(f"[DEBUG] Calling st.rerun() to play track {next_track}")
-        st.rerun()
-    else:
-        print(f"[DEBUG] should_play is False, stopping playback")
 
 
 def render_download_button(track, audio_bytes, index=None):
