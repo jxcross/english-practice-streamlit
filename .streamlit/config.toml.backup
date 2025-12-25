@@ -1,0 +1,3 @@
+[theme]
+# Use default light theme to avoid color warnings
+base = "light"
