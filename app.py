@@ -34,7 +34,9 @@ def init_session_state():
         'play_count': 0,  # Track number of plays to force audio refresh
         'session_api_calls': 0,  # Track API calls in this session
         'session_cache_hits': 0,  # Track cache hits in this session
-        'batch_load_summary': None  # Summary of last batch load
+        'batch_load_summary': None,  # Summary of last batch load
+        'loaded_audio_cache': None,  # Cached audio bytes list
+        'loaded_audio_cache_key': None  # Key to detect when to reload audio
     }
 
     for key, value in defaults.items():
@@ -157,74 +159,93 @@ def render_player_screen():
     if st.session_state.get('api_key'):
         try:
             selected_voice = st.session_state.get('selected_voice', 'en-US-Standard-F')
-            
+
             # Generate audio for all tracks (or next 20 tracks for performance)
             total_tracks = len(st.session_state.tracks)
             max_tracks_to_load = min(total_tracks, 20)  # Load up to 20 tracks at once
-            
-            with st.spinner(f"Generating audio for {max_tracks_to_load} tracks..."):
-                audio_bytes_list = []
-                cache_hits_list = []
-                tracks_to_load = st.session_state.tracks[:max_tracks_to_load]
+            tracks_to_load = st.session_state.tracks[:max_tracks_to_load]
 
-                for i, t in enumerate(tracks_to_load):
-                    try:
-                        # Use Streamlit-cached wrapper for better performance
-                        audio_bytes, duration, cache_hit = _generate_track_audio_cached(
-                            text=t['english'],
-                            voice=selected_voice,
-                            api_key=st.session_state.api_key
-                        )
-                        audio_bytes_list.append(audio_bytes)
-                        cache_hits_list.append(cache_hit)
+            # Create cache key to detect if we need to reload audio
+            # Key format: (track_texts_hash, voice, api_key_prefix)
+            import hashlib
+            tracks_text = '|'.join([t['english'] for t in tracks_to_load])
+            tracks_hash = hashlib.md5(tracks_text.encode()).hexdigest()
+            current_cache_key = f"{tracks_hash}_{selected_voice}_{st.session_state.api_key[:10]}"
 
-                        # Show cache status for current track only
-                        if i == current_idx and cache_hit:
-                            st.sidebar.success("✅ Loaded from cache")
-                    except Exception as e:
-                        st.sidebar.warning(f"Error generating audio for track {i+1}: {str(e)}")
-                        audio_bytes_list.append(None)
-                        cache_hits_list.append(False)
+            # Check if we can reuse cached audio
+            if (st.session_state.loaded_audio_cache is not None and
+                st.session_state.loaded_audio_cache_key == current_cache_key):
+                # Reuse cached audio - no need to reload!
+                audio_bytes_list = st.session_state.loaded_audio_cache
+                st.info("♻️ Using previously loaded audio (no reload needed)")
+            else:
+                # Need to load audio (cache key changed or first load)
+                with st.spinner(f"Generating audio for {max_tracks_to_load} tracks..."):
+                    audio_bytes_list = []
+                    cache_hits_list = []
 
-                # Calculate batch statistics (session stats already updated in _generate_track_audio_cached)
-                cache_hits_count = sum(1 for hit in cache_hits_list if hit)
-                cache_misses_count = len(cache_hits_list) - cache_hits_count
+                    for i, t in enumerate(tracks_to_load):
+                        try:
+                            # Use Streamlit-cached wrapper for better performance
+                            audio_bytes, duration, cache_hit = _generate_track_audio_cached(
+                                text=t['english'],
+                                voice=selected_voice,
+                                api_key=st.session_state.api_key
+                            )
+                            audio_bytes_list.append(audio_bytes)
+                            cache_hits_list.append(cache_hit)
 
-                # Save batch summary (don't update session counters here - already done in wrapper)
-                st.session_state.batch_load_summary = {
-                    'total': len(cache_hits_list),
-                    'cache_hits': cache_hits_count,
-                    'api_calls': cache_misses_count
-                }
+                            # Show cache status for current track only
+                            if i == current_idx and cache_hit:
+                                st.sidebar.success("✅ Loaded from cache")
+                        except Exception as e:
+                            st.sidebar.warning(f"Error generating audio for track {i+1}: {str(e)}")
+                            audio_bytes_list.append(None)
+                            cache_hits_list.append(False)
 
-                # Render audio player with all tracks data
-                render_audio_player(
-                    audio_bytes_list=audio_bytes_list,
-                    tracks=tracks_to_load,
-                    current_track_idx=current_idx,
-                    show_download=True
-                )
+                    # Calculate batch statistics (session stats already updated in _generate_track_audio_cached)
+                    cache_hits_count = sum(1 for hit in cache_hits_list if hit)
+                    cache_misses_count = len(cache_hits_list) - cache_hits_count
 
-                # Display batch load summary
-                if st.session_state.batch_load_summary:
-                    summary = st.session_state.batch_load_summary
-                    st.info(f"📊 Loaded {summary['total']} tracks: "
-                            f"{summary['cache_hits']} from cache, "
-                            f"{summary['api_calls']} from API")
-
-                    if summary['api_calls'] > 0:
-                        st.caption(f"💰 {summary['api_calls']} API calls made this batch")
-
-                # Auto-play info (appears when auto-play is enabled)
-                if st.session_state.get('auto_play', False):
-                    st.markdown("---")
-                    repeat_mode = st.session_state.get('repeat_mode', 'none')
-                    mode_desc = {
-                        'none': '순차 재생 (마지막 트랙에서 정지)',
-                        'one': '현재 트랙 반복',
-                        'all': '전체 플레이리스트 반복'
+                    # Save batch summary (don't update session counters here - already done in wrapper)
+                    st.session_state.batch_load_summary = {
+                        'total': len(cache_hits_list),
+                        'cache_hits': cache_hits_count,
+                        'api_calls': cache_misses_count
                     }
-                    st.info(f"🔄 Auto-Play 활성화: {mode_desc.get(repeat_mode, '')} - 오디오 재생이 끝나면 자동으로 다음 트랙으로 진행됩니다.")
+
+                    # Cache the loaded audio in session state
+                    st.session_state.loaded_audio_cache = audio_bytes_list
+                    st.session_state.loaded_audio_cache_key = current_cache_key
+
+            # Render audio player with all tracks data (always, regardless of cache)
+            render_audio_player(
+                audio_bytes_list=audio_bytes_list,
+                tracks=tracks_to_load,
+                current_track_idx=current_idx,
+                show_download=True
+            )
+
+            # Display batch load summary
+            if st.session_state.batch_load_summary:
+                summary = st.session_state.batch_load_summary
+                st.info(f"📊 Loaded {summary['total']} tracks: "
+                        f"{summary['cache_hits']} from cache, "
+                        f"{summary['api_calls']} from API")
+
+                if summary['api_calls'] > 0:
+                    st.caption(f"💰 {summary['api_calls']} API calls made this batch")
+
+            # Auto-play info (appears when auto-play is enabled)
+            if st.session_state.get('auto_play', False):
+                st.markdown("---")
+                repeat_mode = st.session_state.get('repeat_mode', 'none')
+                mode_desc = {
+                    'none': '순차 재생 (마지막 트랙에서 정지)',
+                    'one': '현재 트랙 반복',
+                    'all': '전체 플레이리스트 반복'
+                }
+                st.info(f"🔄 Auto-Play 활성화: {mode_desc.get(repeat_mode, '')} - 오디오 재생이 끝나면 자동으로 다음 트랙으로 진행됩니다.")
 
         except Exception as e:
             st.error(f"Error generating audio: {str(e)}")
