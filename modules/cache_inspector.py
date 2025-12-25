@@ -30,8 +30,8 @@ def render_cache_inspector(tts_engine):
     st.markdown("**Recently accessed cache entries** (showing top 20):")
 
     for cache_key, metadata in sorted_items[:20]:
-        # Load cache data to get text preview
-        cached_data = tts_engine.cache.get(cache_key)
+        # Load cache data to get text preview (don't track in stats)
+        cached_data = tts_engine.cache.get(cache_key, track_stats=False)
 
         if cached_data:
             text_preview = cached_data.get('text_preview', 'N/A')

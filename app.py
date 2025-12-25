@@ -59,15 +59,19 @@ def _handle_auto_play_next():
         st.session_state.current_track = next_track
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
 def _generate_track_audio_cached(text, voice, api_key):
     """
-    Streamlit-cached wrapper for audio generation
-    Prevents re-checking cache on every Streamlit rerun
-    TTL: 1 hour (3600 seconds)
+    Wrapper for audio generation with session-level statistics tracking
     """
     tts_engine = TTSEngine(api_key=api_key)
     audio_bytes, duration, cache_hit = tts_engine.generate_audio(text, voice)
+
+    # Update session-level stats (more reliable than cache manager stats)
+    if cache_hit:
+        st.session_state.session_cache_hits = st.session_state.get('session_cache_hits', 0) + 1
+    else:
+        st.session_state.session_api_calls = st.session_state.get('session_api_calls', 0) + 1
+
     return audio_bytes, duration, cache_hit
 
 
@@ -174,15 +178,11 @@ def render_player_screen():
                         audio_bytes_list.append(None)
                         cache_hits_list.append(False)
 
-                # Calculate batch statistics
+                # Calculate batch statistics (session stats already updated in _generate_track_audio_cached)
                 cache_hits_count = sum(1 for hit in cache_hits_list if hit)
                 cache_misses_count = len(cache_hits_list) - cache_hits_count
 
-                # Update session counters
-                st.session_state.session_api_calls += cache_misses_count
-                st.session_state.session_cache_hits += cache_hits_count
-
-                # Save batch summary
+                # Save batch summary (don't update session counters here - already done in wrapper)
                 st.session_state.batch_load_summary = {
                     'total': len(cache_hits_list),
                     'cache_hits': cache_hits_count,
@@ -264,29 +264,28 @@ def main():
         st.sidebar.metric("Cache Size", f"{stats['size_mb']:.1f} MB / {stats['max_size_mb']} MB")
         st.sidebar.progress(stats['usage_percent'] / 100)
 
-        # Cache performance metrics
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("**Cache Performance**")
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            st.metric("Hits", stats.get('cache_hits', 0))
-        with col2:
-            st.metric("Misses", stats.get('cache_misses', 0))
-
-        hit_rate = stats.get('hit_rate', 0)
-        st.sidebar.metric("Hit Rate", f"{hit_rate:.1f}%")
-
-        # Session statistics
+        # Session statistics (primary source of truth)
         st.sidebar.markdown("---")
         st.sidebar.markdown("**This Session**")
-        st.sidebar.metric("API Calls", st.session_state.get('session_api_calls', 0))
-        st.sidebar.metric("Cache Hits", st.session_state.get('session_cache_hits', 0))
 
-        # Calculate session savings
-        session_total = st.session_state.get('session_api_calls', 0) + st.session_state.get('session_cache_hits', 0)
+        session_api_calls = st.session_state.get('session_api_calls', 0)
+        session_cache_hits = st.session_state.get('session_cache_hits', 0)
+        session_total = session_api_calls + session_cache_hits
+
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            st.metric("Cache Hits", session_cache_hits)
+        with col2:
+            st.metric("API Calls", session_api_calls)
+
+        # Calculate and display session hit rate
         if session_total > 0:
-            session_savings = (st.session_state.get('session_cache_hits', 0) / session_total) * 100
-            st.sidebar.caption(f"💰 {session_savings:.1f}% saved this session")
+            session_hit_rate = (session_cache_hits / session_total) * 100
+            st.sidebar.metric("Hit Rate", f"{session_hit_rate:.1f}%")
+            st.sidebar.caption(f"💰 {session_hit_rate:.1f}% saved this session")
+        else:
+            st.sidebar.metric("Hit Rate", "0.0%")
+            st.sidebar.caption("Load a playlist to see cache statistics")
 
         
 

@@ -17,42 +17,64 @@ class CacheManager:
         self.max_size_mb = max_size_mb
         self.ttl_days = ttl_days
 
-        # Index file for metadata
+        # Index file for metadata and stats
         self.index_file = self.cache_dir / 'index.pkl'
-        self.index = self._load_index()
-
-        # Statistics tracking
-        self.stats = {
-            'total_requests': 0,
-            'cache_hits': 0,
-            'cache_misses': 0
-        }
+        self.index, self.stats = self._load_index()
 
         # Clean expired entries on init
         self._clean_expired()
 
     def _load_index(self):
-        """Load cache index from disk"""
+        """Load cache index and stats from disk"""
         if self.index_file.exists():
             try:
                 with open(self.index_file, 'rb') as f:
-                    return pickle.load(f)
+                    data = pickle.load(f)
+
+                # Handle new format with stats
+                if isinstance(data, dict) and 'index' in data and 'stats' in data:
+                    return data['index'], data['stats']
+                # Handle old format (backward compatibility)
+                else:
+                    return data, {
+                        'total_requests': 0,
+                        'cache_hits': 0,
+                        'cache_misses': 0
+                    }
             except Exception:
-                return {}
-        return {}
+                return {}, {
+                    'total_requests': 0,
+                    'cache_hits': 0,
+                    'cache_misses': 0
+                }
+        return {}, {
+            'total_requests': 0,
+            'cache_hits': 0,
+            'cache_misses': 0
+        }
 
     def _save_index(self):
-        """Save cache index to disk"""
+        """Save cache index and stats to disk"""
         with open(self.index_file, 'wb') as f:
-            pickle.dump(self.index, f)
+            pickle.dump({
+                'index': self.index,
+                'stats': self.stats
+            }, f)
 
-    def get(self, key):
-        """Get item from cache"""
-        # Track total requests
-        self.stats['total_requests'] += 1
+    def get(self, key, track_stats=True):
+        """Get item from cache
+
+        Args:
+            key: Cache key
+            track_stats: Whether to track this request in stats (default: True)
+        """
+        # Track total requests (only if tracking is enabled)
+        if track_stats:
+            self.stats['total_requests'] += 1
 
         if key not in self.index:
-            self.stats['cache_misses'] += 1
+            if track_stats:
+                self.stats['cache_misses'] += 1
             return None
 
         metadata = self.index[key]
@@ -60,7 +82,8 @@ class CacheManager:
         # Check expiry
         if datetime.now() - metadata['created_at'] > timedelta(days=self.ttl_days):
             self.delete(key)
-            self.stats['cache_misses'] += 1
+            if track_stats:
+                self.stats['cache_misses'] += 1
             return None
 
         # Load from disk
@@ -68,7 +91,8 @@ class CacheManager:
         if not cache_file.exists():
             del self.index[key]
             self._save_index()
-            self.stats['cache_misses'] += 1
+            if track_stats:
+                self.stats['cache_misses'] += 1
             return None
 
         try:
@@ -79,12 +103,14 @@ class CacheManager:
             metadata['last_accessed'] = datetime.now()
             self._save_index()
 
-            # Track cache hit
-            self.stats['cache_hits'] += 1
+            # Track cache hit (only if tracking is enabled)
+            if track_stats:
+                self.stats['cache_hits'] += 1
             return data
         except Exception:
             self.delete(key)
-            self.stats['cache_misses'] += 1
+            if track_stats:
+                self.stats['cache_misses'] += 1
             return None
 
     def set(self, key, value):
