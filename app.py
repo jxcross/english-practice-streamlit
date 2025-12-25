@@ -12,7 +12,7 @@ from modules.cache_inspector import render_cache_inspector
 # Page configuration
 st.set_page_config(
     page_title="English Practice Player",
-    page_icon="🎵",
+    page_icon="assets/logo-128.png",  # Using new professional logo
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -79,8 +79,13 @@ def _generate_track_audio_cached(text, voice, api_key):
 
 def render_upload_screen():
     """Render upload/playlist selection screen"""
-    st.title("🎵 English Practice Player")
-    st.markdown("*영어 학습 플레이어*")
+    # Header with logo
+    col1, col2 = st.columns([1, 5])
+    with col1:
+        st.image("assets/logo-256.png", width=120)
+    with col2:
+        st.title("English Practice Player")
+        st.markdown("*영어 학습 플레이어*")
 
     # Show "Go to Player" button if tracks are loaded
     if st.session_state.get('tracks'):
@@ -121,11 +126,17 @@ def render_upload_screen():
 
 def render_player_screen():
     """Render player screen with controls and audio"""
-    # Back button
-    if st.button("← Back to Upload", key="back_btn"):
-        st.session_state.current_screen = 'upload'
-        st.session_state.is_playing = False
-        st.rerun()
+    # Header with logo and back button
+    col1, col2, col3 = st.columns([1, 4, 1])
+    with col1:
+        st.image("assets/logo-128.png", width=60)
+    with col2:
+        st.markdown("### English Practice Player")
+    with col3:
+        if st.button("← Back", key="back_btn"):
+            st.session_state.current_screen = 'upload'
+            st.session_state.is_playing = False
+            st.rerun()
 
     st.markdown("---")
 
