@@ -21,6 +21,13 @@ class CacheManager:
         self.index_file = self.cache_dir / 'index.pkl'
         self.index = self._load_index()
 
+        # Statistics tracking
+        self.stats = {
+            'total_requests': 0,
+            'cache_hits': 0,
+            'cache_misses': 0
+        }
+
         # Clean expired entries on init
         self._clean_expired()
 
@@ -41,7 +48,11 @@ class CacheManager:
 
     def get(self, key):
         """Get item from cache"""
+        # Track total requests
+        self.stats['total_requests'] += 1
+
         if key not in self.index:
+            self.stats['cache_misses'] += 1
             return None
 
         metadata = self.index[key]
@@ -49,6 +60,7 @@ class CacheManager:
         # Check expiry
         if datetime.now() - metadata['created_at'] > timedelta(days=self.ttl_days):
             self.delete(key)
+            self.stats['cache_misses'] += 1
             return None
 
         # Load from disk
@@ -56,6 +68,7 @@ class CacheManager:
         if not cache_file.exists():
             del self.index[key]
             self._save_index()
+            self.stats['cache_misses'] += 1
             return None
 
         try:
@@ -66,9 +79,12 @@ class CacheManager:
             metadata['last_accessed'] = datetime.now()
             self._save_index()
 
+            # Track cache hit
+            self.stats['cache_hits'] += 1
             return data
         except Exception:
             self.delete(key)
+            self.stats['cache_misses'] += 1
             return None
 
     def set(self, key, value):
@@ -150,7 +166,10 @@ class CacheManager:
             'items': len(self.index),
             'size_mb': total_size / (1024 * 1024),
             'max_size_mb': self.max_size_mb,
-            'usage_percent': (total_size / (self.max_size_mb * 1024 * 1024)) * 100 if self.max_size_mb > 0 else 0
+            'usage_percent': (total_size / (self.max_size_mb * 1024 * 1024)) * 100 if self.max_size_mb > 0 else 0,
+            'cache_hits': self.stats['cache_hits'],
+            'cache_misses': self.stats['cache_misses'],
+            'total_requests': self.stats['total_requests']
         }
 
     def clear(self):

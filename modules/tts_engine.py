@@ -225,5 +225,13 @@ class TTSEngine:
         return f"{lang_label} {gender_label} {voice_type} ({voice_id})"
 
     def get_cache_stats(self):
-        """Get cache statistics"""
-        return self.cache.get_stats()
+        """Get cache statistics with hit rate calculation"""
+        stats = self.cache.get_stats()
+
+        # Calculate hit rate
+        if stats.get('total_requests', 0) > 0:
+            stats['hit_rate'] = (stats['cache_hits'] / stats['total_requests']) * 100
+        else:
+            stats['hit_rate'] = 0.0
+
+        return stats

@@ -6,6 +6,7 @@ import streamlit as st
 from modules import ui_components
 from modules.tts_engine import TTSEngine
 from modules.audio_player import render_audio_player
+from modules.cache_inspector import render_cache_inspector
 
 
 # Page configuration
@@ -30,7 +31,10 @@ def init_session_state():
         'current_screen': 'upload',  # 'upload' or 'player'
         'auto_play': False,
         'audio_finished': False,
-        'play_count': 0  # Track number of plays to force audio refresh
+        'play_count': 0,  # Track number of plays to force audio refresh
+        'session_api_calls': 0,  # Track API calls in this session
+        'session_cache_hits': 0,  # Track cache hits in this session
+        'batch_load_summary': None  # Summary of last batch load
     }
 
     for key, value in defaults.items():
@@ -55,6 +59,18 @@ def _handle_auto_play_next():
         st.session_state.current_track = next_track
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _generate_track_audio_cached(text, voice, api_key):
+    """
+    Streamlit-cached wrapper for audio generation
+    Prevents re-checking cache on every Streamlit rerun
+    TTL: 1 hour (3600 seconds)
+    """
+    tts_engine = TTSEngine(api_key=api_key)
+    audio_bytes, duration, cache_hit = tts_engine.generate_audio(text, voice)
+    return audio_bytes, duration, cache_hit
+
+
 def render_upload_screen():
     """Render upload/playlist selection screen"""
     st.title("🎵 English Practice Player")
@@ -63,11 +79,12 @@ def render_upload_screen():
     st.markdown("---")
 
     # Input tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📂 CSV Upload",
         "📝 Text Paste",
         "📋 Saved Playlists",
-        "🎯 Sample Data"
+        "🎯 Sample Data",
+        "🔍 Cache Inspector"
     ])
 
     with tab1:
@@ -81,6 +98,14 @@ def render_upload_screen():
 
     with tab4:
         ui_components.render_sample_data()
+
+    with tab5:
+        # Cache Inspector tab
+        if st.session_state.get('api_key'):
+            tts_engine = TTSEngine(api_key=st.session_state.api_key)
+            render_cache_inspector(tts_engine)
+        else:
+            st.warning("⚠️ Please enter your Google Cloud TTS API key in the sidebar to view cache")
 
 
 def render_player_screen():
@@ -127,22 +152,42 @@ def render_player_screen():
             
             with st.spinner(f"Generating audio for {max_tracks_to_load} tracks..."):
                 audio_bytes_list = []
+                cache_hits_list = []
                 tracks_to_load = st.session_state.tracks[:max_tracks_to_load]
-                
+
                 for i, t in enumerate(tracks_to_load):
                     try:
-                        audio_bytes, duration, cache_hit = tts_engine.generate_audio(
+                        # Use Streamlit-cached wrapper for better performance
+                        audio_bytes, duration, cache_hit = _generate_track_audio_cached(
                             text=t['english'],
-                            voice=selected_voice
+                            voice=selected_voice,
+                            api_key=st.session_state.api_key
                         )
                         audio_bytes_list.append(audio_bytes)
-                        
+                        cache_hits_list.append(cache_hit)
+
                         # Show cache status for current track only
                         if i == current_idx and cache_hit:
                             st.sidebar.success("✅ Loaded from cache")
                     except Exception as e:
                         st.sidebar.warning(f"Error generating audio for track {i+1}: {str(e)}")
                         audio_bytes_list.append(None)
+                        cache_hits_list.append(False)
+
+                # Calculate batch statistics
+                cache_hits_count = sum(1 for hit in cache_hits_list if hit)
+                cache_misses_count = len(cache_hits_list) - cache_hits_count
+
+                # Update session counters
+                st.session_state.session_api_calls += cache_misses_count
+                st.session_state.session_cache_hits += cache_hits_count
+
+                # Save batch summary
+                st.session_state.batch_load_summary = {
+                    'total': len(cache_hits_list),
+                    'cache_hits': cache_hits_count,
+                    'api_calls': cache_misses_count
+                }
 
                 # Render audio player with all tracks data
                 render_audio_player(
@@ -151,6 +196,16 @@ def render_player_screen():
                     current_track_idx=current_idx,
                     show_download=True
                 )
+
+                # Display batch load summary
+                if st.session_state.batch_load_summary:
+                    summary = st.session_state.batch_load_summary
+                    st.info(f"📊 Loaded {summary['total']} tracks: "
+                            f"{summary['cache_hits']} from cache, "
+                            f"{summary['api_calls']} from API")
+
+                    if summary['api_calls'] > 0:
+                        st.caption(f"💰 {summary['api_calls']} API calls made this batch")
 
                 # Auto-play info (appears when auto-play is enabled)
                 if st.session_state.get('auto_play', False):
@@ -208,6 +263,30 @@ def main():
         st.sidebar.metric("Cached Items", stats['items'])
         st.sidebar.metric("Cache Size", f"{stats['size_mb']:.1f} MB / {stats['max_size_mb']} MB")
         st.sidebar.progress(stats['usage_percent'] / 100)
+
+        # Cache performance metrics
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**Cache Performance**")
+        col1, col2 = st.sidebar.columns(2)
+        with col1:
+            st.metric("Hits", stats.get('cache_hits', 0))
+        with col2:
+            st.metric("Misses", stats.get('cache_misses', 0))
+
+        hit_rate = stats.get('hit_rate', 0)
+        st.sidebar.metric("Hit Rate", f"{hit_rate:.1f}%")
+
+        # Session statistics
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**This Session**")
+        st.sidebar.metric("API Calls", st.session_state.get('session_api_calls', 0))
+        st.sidebar.metric("Cache Hits", st.session_state.get('session_cache_hits', 0))
+
+        # Calculate session savings
+        session_total = st.session_state.get('session_api_calls', 0) + st.session_state.get('session_cache_hits', 0)
+        if session_total > 0:
+            session_savings = (st.session_state.get('session_cache_hits', 0) / session_total) * 100
+            st.sidebar.caption(f"💰 {session_savings:.1f}% saved this session")
 
         
 
