@@ -114,12 +114,9 @@ def render_upload_screen():
         ui_components.render_sample_data()
 
     with tab5:
-        # Cache Inspector tab
-        if st.session_state.get('api_key'):
-            tts_engine = TTSEngine(api_key=st.session_state.api_key)
-            render_cache_inspector(tts_engine)
-        else:
-            st.warning("⚠️ Please enter your Google Cloud TTS API key in the sidebar to view cache")
+        # Cache Inspector tab (API key not required for viewing cache)
+        tts_engine = TTSEngine(api_key=st.session_state.get('api_key'))
+        render_cache_inspector(tts_engine)
 
 
 def render_player_screen():
@@ -155,104 +152,118 @@ def render_player_screen():
 
     # st.markdown("---")
 
-    # Generate and play audio
-    if st.session_state.get('api_key'):
-        try:
-            selected_voice = st.session_state.get('selected_voice', 'en-US-Standard-F')
+    # Generate and play audio (works with or without API key)
+    try:
+        selected_voice = st.session_state.get('selected_voice', 'en-US-Standard-F')
 
-            # Generate audio for all tracks (or next 20 tracks for performance)
-            total_tracks = len(st.session_state.tracks)
-            max_tracks_to_load = min(total_tracks, 20)  # Load up to 20 tracks at once
-            tracks_to_load = st.session_state.tracks[:max_tracks_to_load]
+        # Generate audio for all tracks (or next 20 tracks for performance)
+        total_tracks = len(st.session_state.tracks)
+        max_tracks_to_load = min(total_tracks, 20)  # Load up to 20 tracks at once
+        tracks_to_load = st.session_state.tracks[:max_tracks_to_load]
 
-            # Create cache key to detect if we need to reload audio
-            # Key format: (track_texts_hash, voice, api_key_prefix)
-            import hashlib
-            tracks_text = '|'.join([t['english'] for t in tracks_to_load])
-            tracks_hash = hashlib.md5(tracks_text.encode()).hexdigest()
-            current_cache_key = f"{tracks_hash}_{selected_voice}_{st.session_state.api_key[:10]}"
+        # Create cache key to detect if we need to reload audio
+        # Key format: (track_texts_hash, voice, api_key_prefix)
+        import hashlib
+        tracks_text = '|'.join([t['english'] for t in tracks_to_load])
+        tracks_hash = hashlib.md5(tracks_text.encode()).hexdigest()
+        api_key_part = (st.session_state.get('api_key') or 'none')[:10]
+        current_cache_key = f"{tracks_hash}_{selected_voice}_{api_key_part}"
 
-            # Check if we can reuse cached audio
-            if (st.session_state.loaded_audio_cache is not None and
-                st.session_state.loaded_audio_cache_key == current_cache_key):
-                # Reuse cached audio - no need to reload!
-                audio_bytes_list = st.session_state.loaded_audio_cache
-                st.info("♻️ Using previously loaded audio (no reload needed)")
-            else:
-                # Need to load audio (cache key changed or first load)
-                with st.spinner(f"Generating audio for {max_tracks_to_load} tracks..."):
-                    audio_bytes_list = []
-                    cache_hits_list = []
+        # Check if we can reuse cached audio from session state
+        if (st.session_state.loaded_audio_cache is not None and
+            st.session_state.loaded_audio_cache_key == current_cache_key):
+            # Reuse cached audio - no need to reload!
+            audio_bytes_list = st.session_state.loaded_audio_cache
+            st.info("♻️ Using previously loaded audio (no API key needed)")
+        else:
+            # Need to load audio - try cache first, then generate
+            # Initialize TTS engine (API key optional for cache access)
+            tts_engine = TTSEngine(api_key=st.session_state.get('api_key'))
 
-                    for i, t in enumerate(tracks_to_load):
-                        try:
-                            # Use Streamlit-cached wrapper for better performance
-                            audio_bytes, duration, cache_hit = _generate_track_audio_cached(
-                                text=t['english'],
-                                voice=selected_voice,
-                                api_key=st.session_state.api_key
-                            )
-                            audio_bytes_list.append(audio_bytes)
-                            cache_hits_list.append(cache_hit)
+            audio_bytes_list = []
+            cache_hits_list = []
+            all_cached = True
 
-                            # Show cache status for current track only
-                            if i == current_idx and cache_hit:
-                                st.sidebar.success("✅ Loaded from cache")
-                        except Exception as e:
-                            st.sidebar.warning(f"Error generating audio for track {i+1}: {str(e)}")
-                            audio_bytes_list.append(None)
-                            cache_hits_list.append(False)
+            with st.spinner(f"Loading audio for {max_tracks_to_load} tracks..."):
+                for i, t in enumerate(tracks_to_load):
+                    try:
+                        # Try to load from cache or generate
+                        audio_bytes, duration, cache_hit = _generate_track_audio_cached(
+                            text=t['english'],
+                            voice=selected_voice,
+                            api_key=st.session_state.get('api_key')
+                        )
+                        audio_bytes_list.append(audio_bytes)
+                        cache_hits_list.append(cache_hit)
+                        if not cache_hit:
+                            all_cached = False
 
-                    # Calculate batch statistics (session stats already updated in _generate_track_audio_cached)
-                    cache_hits_count = sum(1 for hit in cache_hits_list if hit)
-                    cache_misses_count = len(cache_hits_list) - cache_hits_count
+                        # Show cache status for current track only
+                        if i == current_idx and cache_hit:
+                            st.sidebar.success("✅ Loaded from cache")
 
-                    # Save batch summary (don't update session counters here - already done in wrapper)
-                    st.session_state.batch_load_summary = {
-                        'total': len(cache_hits_list),
-                        'cache_hits': cache_hits_count,
-                        'api_calls': cache_misses_count
-                    }
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "No API key" in error_msg or "API key required" in error_msg:
+                            # API key missing and cache miss
+                            st.error(f"⚠️ No cached audio for track {i+1}: \"{t['english'][:50]}...\"")
+                            st.error("Please enter your Google Cloud TTS API key in the sidebar to generate new audio.")
+                            st.info("💡 Tip: Previously generated tracks are cached and can be played without an API key.")
+                            return
+                        else:
+                            st.error(f"Error loading track {i+1}: {error_msg}")
+                            return
 
-                    # Cache the loaded audio in session state
-                    st.session_state.loaded_audio_cache = audio_bytes_list
-                    st.session_state.loaded_audio_cache_key = current_cache_key
+                # Successfully loaded all tracks
+                cache_hits_count = sum(1 for hit in cache_hits_list if hit)
+                cache_misses_count = len(cache_hits_list) - cache_hits_count
 
-            # Render audio player with all tracks data (always, regardless of cache)
-            render_audio_player(
-                audio_bytes_list=audio_bytes_list,
-                tracks=tracks_to_load,
-                current_track_idx=current_idx,
-                show_download=True
-            )
+                # Save to session cache
+                st.session_state.loaded_audio_cache = audio_bytes_list
+                st.session_state.loaded_audio_cache_key = current_cache_key
 
-            # Display batch load summary
-            if st.session_state.batch_load_summary:
-                summary = st.session_state.batch_load_summary
-                st.info(f"📊 Loaded {summary['total']} tracks: "
-                        f"{summary['cache_hits']} from cache, "
-                        f"{summary['api_calls']} from API")
-
-                if summary['api_calls'] > 0:
-                    st.caption(f"💰 {summary['api_calls']} API calls made this batch")
-
-            # Auto-play info (appears when auto-play is enabled)
-            if st.session_state.get('auto_play', False):
-                st.markdown("---")
-                repeat_mode = st.session_state.get('repeat_mode', 'none')
-                mode_desc = {
-                    'none': '순차 재생 (마지막 트랙에서 정지)',
-                    'one': '현재 트랙 반복',
-                    'all': '전체 플레이리스트 반복'
+                # Save batch summary
+                st.session_state.batch_load_summary = {
+                    'total': len(cache_hits_list),
+                    'cache_hits': cache_hits_count,
+                    'api_calls': cache_misses_count
                 }
-                st.info(f"🔄 Auto-Play 활성화: {mode_desc.get(repeat_mode, '')} - 오디오 재생이 끝나면 자동으로 다음 트랙으로 진행됩니다.")
 
-        except Exception as e:
-            st.error(f"Error generating audio: {str(e)}")
-            st.info("Please check your API key and try again")
+                # Show summary
+                if all_cached:
+                    st.success(f"✅ Loaded {len(cache_hits_list)} tracks from cache (no API key needed)")
+                else:
+                    st.info(f"📊 Loaded {len(cache_hits_list)} tracks: {cache_hits_count} from cache, {cache_misses_count} from API")
 
-    else:
-        st.warning("⚠️ Please enter your Google Cloud TTS API key in the sidebar to generate audio")
+        # Render audio player (always, regardless of API key)
+        render_audio_player(
+            audio_bytes_list=audio_bytes_list,
+            tracks=tracks_to_load,
+            current_track_idx=current_idx,
+            show_download=True
+        )
+
+        # Display batch load summary
+        if st.session_state.batch_load_summary:
+            summary = st.session_state.batch_load_summary
+            if summary['api_calls'] > 0:
+                st.caption(f"💰 {summary['api_calls']} API calls made this batch")
+
+        # Auto-play info (appears when auto-play is enabled)
+        if st.session_state.get('auto_play', False):
+            st.markdown("---")
+            repeat_mode = st.session_state.get('repeat_mode', 'none')
+            mode_desc = {
+                'none': '순차 재생 (마지막 트랙에서 정지)',
+                'one': '현재 트랙 반복',
+                'all': '전체 플레이리스트 반복'
+            }
+            st.info(f"🔄 Auto-Play 활성화: {mode_desc.get(repeat_mode, '')} - 오디오 재생이 끝나면 자동으로 다음 트랙으로 진행됩니다.")
+
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
+        if "API key" in str(e):
+            st.info("💡 Please enter your Google Cloud TTS API key in the sidebar.")
 
     # # Playback controls
     # st.markdown("---")
@@ -278,29 +289,32 @@ def main():
 
     st.sidebar.markdown("---")
 
-    # Cache stats (moved from right sidebar)
+    # Voice selection (only if API key present - requires API call)
     if st.session_state.get('api_key'):
         tts_engine = TTSEngine(api_key=st.session_state.get('api_key'))
-        
-        # Voice selection (moved to bottom of sidebar)
         ui_components.render_voice_selection(tts_engine)
-
         st.sidebar.markdown("---")
-        
-        st.sidebar.markdown("### 💾 Cache Stats")
-        stats = tts_engine.get_cache_stats()
-        st.sidebar.metric("Cached Items", stats['items'])
-        st.sidebar.metric("Cache Size", f"{stats['size_mb']:.1f} MB / {stats['max_size_mb']} MB")
-        st.sidebar.progress(stats['usage_percent'] / 100)
 
-        # Session statistics (primary source of truth)
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("**This Session**")
+    # Cache stats (accessible without API key)
+    st.sidebar.markdown("### 💾 Cache Stats")
 
-        session_api_calls = st.session_state.get('session_api_calls', 0)
-        session_cache_hits = st.session_state.get('session_cache_hits', 0)
-        session_total = session_api_calls + session_cache_hits
+    # Initialize TTS engine for cache access (no API key needed)
+    tts_engine = TTSEngine(api_key=st.session_state.get('api_key'))
+    stats = tts_engine.get_cache_stats()
 
+    st.sidebar.metric("Cached Items", stats['items'])
+    st.sidebar.metric("Cache Size", f"{stats['size_mb']:.1f} MB / {stats['max_size_mb']} MB")
+    st.sidebar.progress(stats['usage_percent'] / 100)
+
+    # Session statistics (primary source of truth)
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("**This Session**")
+
+    session_api_calls = st.session_state.get('session_api_calls', 0)
+    session_cache_hits = st.session_state.get('session_cache_hits', 0)
+    session_total = session_api_calls + session_cache_hits
+
+    if session_total > 0:
         col1, col2 = st.sidebar.columns(2)
         with col1:
             st.metric("Cache Hits", session_cache_hits)
@@ -308,13 +322,11 @@ def main():
             st.metric("API Calls", session_api_calls)
 
         # Calculate and display session hit rate
-        if session_total > 0:
-            session_hit_rate = (session_cache_hits / session_total) * 100
-            st.sidebar.metric("Hit Rate", f"{session_hit_rate:.1f}%")
-            st.sidebar.caption(f"💰 {session_hit_rate:.1f}% saved this session")
-        else:
-            st.sidebar.metric("Hit Rate", "0.0%")
-            st.sidebar.caption("Load a playlist to see cache statistics")
+        session_hit_rate = (session_cache_hits / session_total) * 100
+        st.sidebar.metric("Hit Rate", f"{session_hit_rate:.1f}%")
+        st.sidebar.caption(f"💰 {session_hit_rate:.1f}% saved this session")
+    else:
+        st.sidebar.caption("Load a playlist to see statistics")
 
         
 

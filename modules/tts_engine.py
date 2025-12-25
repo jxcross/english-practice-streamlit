@@ -37,9 +37,12 @@ class TTSEngine:
         if cached:
             return cached['audio'], cached['duration'], True
 
-        # Check API key
+        # Check API key (only needed for new audio generation)
         if not self.api_key:
-            raise Exception("TTS client not initialized. Please provide a valid API key.")
+            raise Exception(
+                "No API key provided. Cannot generate new audio. "
+                "Please enter your Google Cloud TTS API key."
+            )
 
         try:
             # Extract language code from voice name if not provided
