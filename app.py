@@ -80,6 +80,14 @@ def render_upload_screen():
     st.title("🎵 English Practice Player")
     st.markdown("*영어 학습 플레이어*")
 
+    # Show "Go to Player" button if tracks are loaded
+    if st.session_state.get('tracks'):
+        track_count = len(st.session_state.tracks)
+        st.info(f"📀 {track_count} tracks loaded")
+        if st.button("▶️ Go to Player", key="go_to_player_btn", type="primary"):
+            st.session_state.current_screen = 'player'
+            st.rerun()
+
     st.markdown("---")
 
     # Input tabs
